@@ -7,3 +7,4 @@ python-dotenv
 ffmpeg-python
 python-multipart
 aiofiles
+opencv-python-headless
