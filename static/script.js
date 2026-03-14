@@ -202,7 +202,7 @@ function createShortsGrid(shorts) {
         const card = document.createElement('div');
         card.className = 'short-card';
         card.innerHTML = `
-            <img src="/api/stream/${s.thumbnail_id}?is_image=true">
+            <img src="/api/stream?file_id=${encodeURIComponent(s.thumbnail_id)}&is_image=true">
             <div class="short-info">
                 <div class="short-title">${s.title}</div>
                 <div style="font-size:10px; color:#ccc;">${formatViews(s.view_count)} views</div>
@@ -222,7 +222,7 @@ function createLongList(longs) {
         card.className = 'long-card';
         card.innerHTML = `
             <div class="thumbnail-container">
-                <img src="/api/stream/${l.thumbnail_id}?is_image=true">
+                <img src="/api/stream?file_id=${encodeURIComponent(l.thumbnail_id)}&is_image=true">
                 <div class="view-badge" style="bottom:8px; right:8px;">${formatViews(l.view_count)} views</div>
             </div>
             <div class="long-info">
@@ -261,7 +261,7 @@ async function loadShorts() {
         wrapper.className = 'short-video-wrapper';
         wrapper.innerHTML = `
             <video loop playsinline data-id="${s._id}">
-                <source src="/api/stream/${s.file_id}" type="video/mp4">
+                <source src="/api/stream?file_id=${encodeURIComponent(s.file_id)}" type="video/mp4">
             </video>
             <div style="position:absolute; bottom:20px; left:20px; pointer-events:none;">
                 <h3>${s.title}</h3>
@@ -307,13 +307,16 @@ function openLongPlayer(video) {
     const overlay = document.getElementById('video-overlay');
     const player = document.getElementById('long-video-player');
     overlay.style.display = 'block';
-    player.src = `/api/stream/${video.file_id}`;
+    player.src = `/api/stream?file_id=${encodeURIComponent(video.file_id)}`;
     document.getElementById('player-title').innerText = video.title;
     document.getElementById('player-views').innerText = `${formatViews(video.view_count)} views`;
     
     initCustomPlayer(player);
     trackView(video._id, player);
     loadSuggestions(video._id);
+    
+    // Fix Point 2: Force play the video
+    player.play().catch(e => console.error("Auto-play failed:", e));
 }
 
 function initCustomPlayer(player) {
@@ -521,7 +524,7 @@ async function loadCategories() {
                 ${catVideos.slice(0, 5).map(v => `
                     <div class="cat-thumb-card" onclick="openVideo('${v._id}')">
                         <div class="cat-thumb-img">
-                            <img src="/api/stream/${v.thumbnail_id}?is_image=true">
+                            <img src="/api/stream?file_id=${encodeURIComponent(v.thumbnail_id)}&is_image=true">
                         </div>
                         <div class="cat-video-title">${v.title}</div>
                     </div>
@@ -679,7 +682,7 @@ function renderAdminVideoList(videos) {
         const item = document.createElement('div');
         item.style = "display:flex; align-items:center; background:#222; padding:10px; border-radius:8px; gap:10px;";
         item.innerHTML = `
-            <img src="/api/stream/${v.thumbnail_id}?is_image=true" style="width:60px; height:40px; object-fit:cover; border-radius:4px;">
+            <img src="/api/stream?file_id=${encodeURIComponent(v.thumbnail_id)}&is_image=true" style="width:60px; height:40px; object-fit:cover; border-radius:4px;">
             <div style="flex:1;">
                 <div style="font-size:14px; font-weight:bold;">${v.title}</div>
                 <div style="font-size:12px; color:#aaa;">${v.type} | ${v.view_count} views</div>
@@ -767,7 +770,7 @@ async function loadSuggestions(currentId) {
         item.className = 'long-card';
         item.innerHTML = `
             <div class="thumbnail-container" style="aspect-ratio: 16/9;">
-                <img src="/api/stream/${s.thumbnail_id}?is_image=true">
+                <img src="/api/stream?file_id=${encodeURIComponent(s.thumbnail_id)}&is_image=true">
             </div>
             <div style="font-size:12px;">${s.title}</div>
         `;
