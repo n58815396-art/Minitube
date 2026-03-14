@@ -138,18 +138,18 @@ async def get_categories():
     return categories
 
 @app.get("/api/stream/{file_id}")
-async def stream_video(file_id: str):
+async def stream_media(file_id: str, is_image: bool = False):
     async def generator():
         # Using a larger chunk size for smoother playback
-        # 512 KB chunks instead of default
         async for chunk in tg_client.stream_media(file_id, limit=0, offset=0, chunk_size=512 * 1024):
             yield chunk
-            # Small sleep to allow event loop to breathe during high-load streaming
             await asyncio.sleep(0)
+    
+    media_type = "image/jpeg" if is_image else "video/mp4"
     
     return StreamingResponse(
         generator(), 
-        media_type="video/mp4",
+        media_type=media_type,
         headers={
             "Accept-Ranges": "bytes",
             "Cache-Control": "public, max-age=3600"
