@@ -1,774 +1,421 @@
-const tg = window.Telegram.WebApp;
-tg.expand();
+const API_BASE = "http://localhost:7860/api"; // Aapka Railway/Backend URL lagayein
 
-let currentAdminId = "1326069145"; // Updated to user's Admin ID
-let adminId = tg.initDataUnsafe?.user?.id?.toString();
+let allVideos = [];
+let shortsVideos = [];
+let longVideos = [];
 
-let currentShortsSort = 'new'; // Global sort state
+// DOM Elements
+const mainContent = document.getElementById("main-content");
+const bottomNavItems = document.querySelectorAll(".nav-item");
 
-// Initialize UI
-document.addEventListener('DOMContentLoaded', () => {
-    initNav(); // Initialize navigation first
-    checkAdmin();
+// On Load
+window.addEventListener("DOMContentLoaded", async () => {
+    await fetchAllVideos();
     loadHome();
-    loadCategories();
-    initSearch();
-    initShortsSort();
 });
 
-// Shorts Sorting Logic
-function initShortsSort() {
-    const btn = document.getElementById('shorts-sort-btn');
-    const menu = document.getElementById('shorts-sort-menu');
-    const label = document.getElementById('current-sort-label');
-    const options = document.querySelectorAll('.sort-option');
-
-    if (!btn) return;
-
-    btn.onclick = (e) => {
-        e.stopPropagation();
-        menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
-    };
-
-    document.addEventListener('click', () => {
-        if (menu) menu.style.display = 'none';
-    });
-
-    options.forEach(opt => {
-        opt.onclick = () => {
-            currentShortsSort = opt.dataset.sort;
-            label.innerText = opt.innerText;
-            loadShorts();
-        };
-    });
-}
-
-// Search Logic
-function initSearch() {
-    const searchBtn = document.getElementById('search-btn');
-    const searchContainer = document.querySelector('.search-container');
-    const searchInput = document.getElementById('search-input');
-    const logo = document.querySelector('.logo');
-
-    if (!searchBtn) return;
-
-    searchBtn.onclick = () => {
-        if (searchContainer.style.display === 'none') {
-            searchContainer.style.display = 'block';
-            logo.style.display = 'none';
-            searchInput.focus();
-        } else {
-            if (searchInput.value) {
-                performSearch(searchInput.value);
-            } else {
-                searchContainer.style.display = 'none';
-                logo.style.display = 'block';
-            }
-        }
-    };
-
-    searchInput.onkeyup = (e) => {
-        if (e.key === 'Enter') performSearch(searchInput.value);
-    };
-}
-
-async function performSearch(query) {
-    if (!query) return;
-    
-    // Switch to search page
-    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-    document.getElementById('search-page').classList.add('active');
-    
-    const resultsContainer = document.getElementById('search-results');
-    resultsContainer.innerHTML = '<p style="padding:20px;">Searching...</p>';
-    
-    const response = await fetch(`/api/videos/search?q=${encodeURIComponent(query)}`);
-    const videos = await response.json();
-    
-    resultsContainer.innerHTML = `<h2 style="padding:10px;">Results for "${query}"</h2>`;
-    if (videos.length === 0) {
-        resultsContainer.innerHTML += '<p style="padding:20px;">No videos found.</p>';
-        return;
-    }
-    
-    const list = createLongList(videos);
-    resultsContainer.appendChild(list);
-}
-
-// Admin Check
-function checkAdmin() {
-    console.log("Checking Admin... App User ID:", adminId, "Target ID:", currentAdminId);
-    
-    // Ensure both are compared as strings to avoid type issues
-    if (adminId && String(adminId) === String(currentAdminId)) {
-        console.log("Admin Match Found! Displaying Panel.");
-        const adminBtn = document.getElementById('admin-nav-btn');
-        if (adminBtn) adminBtn.style.display = 'flex';
-    } else {
-        console.log("Admin Match Failed.");
+// Fetch Data
+async function fetchAllVideos() {
+    try {
+        const res = await fetch(`${API_BASE}/videos`);
+        allVideos = await res.json();
+        shortsVideos = allVideos.filter(v => v.type === "short");
+        longVideos = allVideos.filter(v => v.type === "long");
+    } catch (e) {
+        console.error("Error fetching videos:", e);
     }
 }
 
-// Navigation
-function initNav() {
-    const navItems = document.querySelectorAll('.nav-item');
-    navItems.forEach(item => {
-        item.addEventListener('click', () => {
-            const pageId = item.getAttribute('data-page');
-            console.log("Navigating to:", pageId);
-
-            document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-            document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-            
-            const targetPage = document.getElementById(pageId);
-            if (targetPage) {
-                targetPage.classList.add('active');
-                item.classList.add('active');
-                
-                // Hide search bar if navigating away
-                const searchContainer = document.querySelector('.search-container');
-                const logo = document.querySelector('.logo');
-                if (searchContainer && logo) {
-                    searchContainer.style.display = 'none';
-                    logo.style.display = 'flex';
-                }
-            } else {
-                console.error("Target page not found:", pageId);
-            }
-
-            if (pageId === 'shorts-page') loadShorts();
-            if (pageId === 'trending-page') loadTrending();
-            if (pageId === 'category-page') loadCategories();
-            if (pageId === 'admin-page') loadAdminVideos();
-        });
-    });
+// Update Active Nav
+function setActiveNav(index) {
+    bottomNavItems.forEach(item => item.classList.remove("active"));
+    bottomNavItems[index].classList.add("active");
 }
 
-async function loadTrending() {
-    const container = document.getElementById('trending-content');
-    container.innerHTML = '<p style="padding:20px;">Loading trending...</p>';
+/* =======================================
+   POINT 6: HOME FEED ALGORITHM (4 Shorts, 5 Long)
+======================================= */
+function loadHome() {
+    setActiveNav(0);
+    mainContent.innerHTML = "";
     
-    const response = await fetch('/api/videos/trending');
-    const videos = await response.json();
-    
-    container.innerHTML = '';
-    if (videos.length === 0) {
-        container.innerHTML = '<p style="padding:20px;">No trending videos yet.</p>';
-        return;
-    }
-    
-    const list = createLongList(videos);
-    container.appendChild(list);
-}
+    let sIndex = 0;
+    let lIndex = 0;
 
-// Data Fetching
-async function loadHome() {
-    const response = await fetch('/api/videos');
-    const videos = await response.json();
-    
-    const shorts = videos.filter(v => v.type === 'short');
-    const longs = videos.filter(v => v.type === 'long');
-
-    const homeContent = document.getElementById('home-content');
-    homeContent.innerHTML = '';
-
-    // 1. Shorts Section
-    if (shorts.length > 0) {
-        const title = document.createElement('div');
-        title.className = 'section-title';
-        title.innerHTML = '<svg viewBox="0 0 24 24" style="width:20px;height:20px;fill:red;"><path d="M17.6 9.48l-.8-4.8c-.23-1.4-1.54-2.43-2.95-2.2L9.05 3.28c-1.4.23-2.43 1.54-2.2 2.95l.8 4.8-4.8.8c-1.4.23-2.43 1.54-2.2 2.95l.8 4.8c.23 1.4 1.54 2.43 2.95 2.2l4.8-.8-.8-4.8c-.23-1.4-1.54-2.43-2.95-2.2l4.8-.8.8 4.8c.23 1.4 1.54 2.43 2.95 2.2l4.8-.8.8 4.8c.23 1.4 1.54 2.43 2.95 2.2l4.8-.8.8 4.8c.23 1.4 1.54 2.43 2.95 2.2l-4.8.8z"/></svg> Shorts';
-        homeContent.appendChild(title);
+    // Loop until we run out of both
+    while(sIndex < shortsVideos.length || lIndex < longVideos.length) {
         
-        const grid1 = createShortsGrid(shorts.slice(0, 4));
-        homeContent.appendChild(grid1);
-    }
+        // 1. Add 4 Shorts (2x2 Grid)
+        if (sIndex < shortsVideos.length) {
+            let chunk = shortsVideos.slice(sIndex, sIndex + 4);
+            let shortsHTML = `
+                <div class="shorts-shelf">
+                    <div class="shorts-shelf-title"><i class="fas fa-bolt"></i> Shorts</div>
+                    <div class="shorts-grid">
+                        ${chunk.map((video, idx) => `
+                            <div class="short-card-home" onclick="openShortsPlayer(${sIndex + idx})">
+                                <img src="${API_BASE}/stream?file_id=${video.thumbnail_id}&is_image=true" onerror="this.src='https://via.placeholder.com/200x350?text=Short'">
+                                <div class="title">${video.title}</div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+            mainContent.innerHTML += shortsHTML;
+            sIndex += 4;
+        }
 
-    // 2. Long Videos Section
-    if (longs.length > 0) {
-        const title = document.createElement('div');
-        title.className = 'section-title';
-        title.innerText = 'Recommended';
-        homeContent.appendChild(title);
-
-        const list = createLongList(longs);
-        homeContent.appendChild(list);
+        // 2. Add 5 Long Videos
+        if (lIndex < longVideos.length) {
+            let chunk = longVideos.slice(lIndex, lIndex + 5);
+            let longsHTML = chunk.map(video => `
+                <div class="long-video-card" onclick="openLongPlayer('${video._id}')">
+                    <div class="thumbnail-container">
+                        <img src="${API_BASE}/stream?file_id=${video.thumbnail_id}&is_image=true" onerror="this.src='https://via.placeholder.com/640x360'">
+                    </div>
+                    <div class="video-info">
+                        <h3>${video.title}</h3>
+                        <p>${video.view_count || 0} views</p>
+                    </div>
+                </div>
+            `).join('');
+            mainContent.innerHTML += longsHTML;
+            lIndex += 5;
+        }
     }
 }
 
-function createShortsGrid(shorts) {
-    const grid = document.createElement('div');
-    grid.className = 'shorts-grid';
-    shorts.forEach(s => {
-        const card = document.createElement('div');
-        card.className = 'short-card';
-        card.innerHTML = `
-            <img src="/api/stream?file_id=${encodeURIComponent(s.thumbnail_id)}&is_image=true">
-            <div class="short-info">
-                <div class="short-title">${s.title}</div>
-                <div style="font-size:10px; color:#ccc;">${formatViews(s.view_count)} views</div>
-            </div>
-        `;
-        card.onclick = () => openShortsAt(s._id);
-        grid.appendChild(card);
-    });
-    return grid;
+/* =======================================
+   POINT 7: CATEGORY LAYOUT
+======================================= */
+async function loadCategoriesTab() {
+    setActiveNav(2);
+    mainContent.innerHTML = "<div style='text-align:center; padding:20px;'>Loading...</div>";
+    
+    try {
+        const catRes = await fetch(`${API_BASE}/categories`);
+        const categories = await catRes.json();
+        
+        mainContent.innerHTML = "";
+        
+        for (let cat of categories) {
+            const catVideos = allVideos.filter(v => v.category_id === cat._id);
+            if(catVideos.length === 0) continue;
+
+            // Take max 5 videos for horizontal scroll
+            const top5 = catVideos.slice(0, 5);
+            
+            mainContent.innerHTML += `
+                <div class="category-section">
+                    <div class="category-header">
+                        <h2>${cat.name}</h2>
+                        <span class="view-all" onclick="viewAllCategory('${cat._id}', '${cat.name}')">View All</span>
+                    </div>
+                    <div class="category-horizontal-scroll">
+                        ${top5.map(v => `
+                            <div class="category-video-card" onclick="${v.type === 'long' ? `openLongPlayer('${v._id}')` : `openShortsPlayerByCat('${cat._id}', '${v._id}')`}">
+                                <div class="thumbnail-container">
+                                    <img src="${API_BASE}/stream?file_id=${v.thumbnail_id}&is_image=true" onerror="this.src='https://via.placeholder.com/320x180'">
+                                </div>
+                                <div class="video-info">
+                                    <h3 style="font-size:12px;">${v.title}</h3>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+        }
+    } catch (e) {
+        mainContent.innerHTML = "<div style='text-align:center; padding:20px;'>Error loading categories</div>";
+    }
 }
 
-function createLongList(longs) {
-    const list = document.createElement('div');
-    list.className = 'long-list';
-    longs.forEach(l => {
-        const card = document.createElement('div');
-        card.className = 'long-card';
-        card.innerHTML = `
-            <div class="thumbnail-container">
-                <img src="/api/stream?file_id=${encodeURIComponent(l.thumbnail_id)}&is_image=true">
-                <div class="view-badge" style="bottom:8px; right:8px;">${formatViews(l.view_count)} views</div>
-            </div>
-            <div class="long-info">
-                <div class="channel-avatar">T</div>
-                <div class="video-details">
-                    <div class="video-title">${l.title}</div>
-                    <div class="video-meta">TeleTube • ${formatViews(l.view_count)} views</div>
+function viewAllCategory(catId, catName) {
+    const catVideos = allVideos.filter(v => v.category_id === catId);
+    mainContent.innerHTML = `
+        <h2 style="padding:15px; border-bottom:1px solid #333;"><i class="fas fa-arrow-left" onclick="loadCategoriesTab()" style="margin-right:10px; cursor:pointer;"></i> ${catName}</h2>
+    `;
+    catVideos.forEach(video => {
+        mainContent.innerHTML += `
+            <div class="long-video-card" onclick="${video.type === 'long' ? `openLongPlayer('${video._id}')` : `openShortsPlayerByCat('${catId}', '${video._id}')`}">
+                <div class="thumbnail-container">
+                    <img src="${API_BASE}/stream?file_id=${video.thumbnail_id}&is_image=true">
+                </div>
+                <div class="video-info">
+                    <h3>${video.title}</h3>
+                    <p>${video.view_count || 0} views</p>
                 </div>
             </div>
         `;
-        card.onclick = () => openLongPlayer(l);
-        list.appendChild(card);
     });
-    return list;
 }
 
-// Shorts Player Logic
-async function loadShorts() {
-    const response = await fetch('/api/videos?type=short');
-    let shorts = await response.json();
+function loadShortsTab() {
+    setActiveNav(1);
+    openShortsPlayer(0);
+}
 
-    // Apply Sorting
-    if (currentShortsSort === 'new') {
-        shorts.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-    } else if (currentShortsSort === 'old') {
-        shorts.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-    } else if (currentShortsSort === 'random') {
-        shorts.sort(() => Math.random() - 0.5);
-    }
+/* =======================================
+   POINTS 1 & 2: SHORTS PLAYER & PRELOAD NEXT 2
+======================================= */
+const shortsContainer = document.getElementById("shorts-fullscreen-container");
+const shortsWrapper = document.getElementById("shorts-wrapper");
+let shortsObserver;
 
-    const container = document.getElementById('shorts-container');
-    container.innerHTML = '';
-
-    shorts.forEach(s => {
-        const wrapper = document.createElement('div');
-        wrapper.className = 'short-video-wrapper';
-        wrapper.innerHTML = `
-            <video loop playsinline data-id="${s._id}" src="/api/stream/${s._id}"></video>
-            <div style="position:absolute; bottom:20px; left:20px; pointer-events:none;">
-                <h3>${s.title}</h3>
-                <p>${formatViews(s.view_count)} views</p>
+function openShortsPlayer(startIndex = 0) {
+    shortsContainer.classList.remove("hidden");
+    shortsWrapper.innerHTML = "";
+    
+    // Render all shorts divs, but don't set video src yet
+    shortsVideos.forEach((short, index) => {
+        shortsWrapper.innerHTML += `
+            <div class="short-player-item" data-index="${index}" data-id="${short._id}">
+                <video id="short-vid-${index}" loop playsinline preload="none"></video>
+                <div class="short-info-overlay">
+                    <h3>${short.title}</h3>
+                </div>
             </div>
         `;
-        container.appendChild(wrapper);
     });
 
-    // Auto-play observer
-    const observer = new IntersectionObserver((entries) => {
+    // Intersection Observer for playing current and preloading next 2
+    const options = { root: shortsWrapper, threshold: 0.7 };
+    
+    shortsObserver = new IntersectionObserver((entries) => {
         entries.forEach(entry => {
-            const video = entry.target.querySelector('video');
+            const index = parseInt(entry.target.getAttribute('data-index'));
+            const vid = document.getElementById(`short-vid-${index}`);
+            
             if (entry.isIntersecting) {
-                video.play();
-                trackView(video.dataset.id, video);
+                // Play current
+                if(!vid.src) vid.src = `${API_BASE}/stream/${shortsVideos[index]._id}`;
+                vid.play().catch(e => console.log("Auto-play prevented"));
+                
+                // Add view
+                fetch(`${API_BASE}/views/${shortsVideos[index]._id}`, { method: 'POST' });
+
+                // PRELOAD NEXT 2 VIDEOS (Point 2)
+                for(let i = 1; i <= 2; i++) {
+                    if(index + i < shortsVideos.length) {
+                        const nextVid = document.getElementById(`short-vid-${index + i}`);
+                        if(!nextVid.src) {
+                            nextVid.src = `${API_BASE}/stream/${shortsVideos[index + i]._id}`;
+                            nextVid.preload = "auto";
+                        }
+                    }
+                }
             } else {
-                video.pause();
-                video.currentTime = 0;
+                // Pause if not visible
+                vid.pause();
+                vid.currentTime = 0;
             }
         });
-    }, { threshold: 0.7 });
+    }, options);
 
-    document.querySelectorAll('.short-video-wrapper').forEach(w => observer.observe(w));
-}
+    document.querySelectorAll('.short-player-item').forEach(item => {
+        shortsObserver.observe(item);
+    });
 
-function openShortsAt(id) {
-    document.querySelector('.nav-item[data-page="shorts-page"]').click();
-    
-    // Give it a moment for the page to render
+    // Scroll to clicked short
     setTimeout(() => {
-        const container = document.getElementById('shorts-container');
-        const videoElement = container.querySelector(`video[data-id="${id}"]`);
-        if (videoElement) {
-            videoElement.parentElement.scrollIntoView({ behavior: 'auto' });
-            videoElement.play();
-        }
+        const targetElement = document.querySelector(`.short-player-item[data-index="${startIndex}"]`);
+        if(targetElement) targetElement.scrollIntoView();
     }, 100);
 }
 
-// Long Player Overlay
-function openLongPlayer(video) {
-    const overlay = document.getElementById('video-overlay');
-    const player = document.getElementById('long-video-player');
-    overlay.style.display = 'block';
-    player.src = `/api/stream/${video._id}`;
-    document.getElementById('player-title').innerText = video.title;
-    document.getElementById('player-views').innerText = `${formatViews(video.view_count)} views`;
-    
-    initCustomPlayer(player);
-    trackView(video._id, player);
-    loadSuggestions(video._id);
-    
-    // Fix: Force load then play
-    player.load();
-    player.play().catch(e => console.error("Auto-play failed:", e));
-}
-
-function initCustomPlayer(player) {
-    const progressContainer = document.getElementById('progress-container');
-    const progressBar = document.getElementById('progress-bar');
-    const currentTimeEl = document.getElementById('current-time');
-    const durationEl = document.getElementById('duration');
-    const playerWrapper = document.getElementById('player-wrapper');
-    const muteBtn = document.getElementById('mute-btn');
-    const muteIcon = document.getElementById('mute-icon');
-    const fullscreenBtn = document.getElementById('fullscreen-btn');
-
-    // Fullscreen Logic
-    fullscreenBtn.onclick = (e) => {
-        e.stopPropagation();
-        if (!document.fullscreenElement) {
-            if (playerWrapper.requestFullscreen) {
-                playerWrapper.requestFullscreen();
-            } else if (playerWrapper.webkitRequestFullscreen) { /* Safari */
-                playerWrapper.webkitRequestFullscreen();
-            } else if (playerWrapper.msRequestFullscreen) { /* IE11 */
-                playerWrapper.msRequestFullscreen();
-            }
-        } else {
-            if (document.exitFullscreen) {
-                document.exitFullscreen();
-            }
-        }
-    };
-
-    // Mute/Unmute Logic
-    muteBtn.onclick = (e) => {
-        e.stopPropagation();
-        player.muted = !player.muted;
-        updateMuteIcon();
-    };
-
-    function updateMuteIcon() {
-        if (player.muted) {
-            muteIcon.innerHTML = '<path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/>';
-        } else {
-            muteIcon.innerHTML = '<path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>';
-        }
-    }
-
-    // Ensure icon is correct on init
-    updateMuteIcon();
-
-    // Update progress bar
-    player.ontimeupdate = () => {
-        const percent = (player.currentTime / player.duration) * 100;
-        progressBar.style.width = percent + '%';
-        currentTimeEl.innerText = formatTime(player.currentTime);
-        durationEl.innerText = formatTime(player.duration);
-    };
-
-    // Seek on progress bar click (REMOVED)
-    /* 
-    progressContainer.onclick = (e) => {
-        const rect = progressContainer.getBoundingClientRect();
-        const pos = (e.clientX - rect.left) / rect.width;
-        player.currentTime = pos * player.duration;
-    };
-    */
-
-    // Double tap to skip (REMOVED)
-    /*
-    let lastTap = 0;
-    playerWrapper.onclick = (e) => {
-        const now = Date.now();
-        const TIMESPAN = 300;
-        if (now - lastTap < TIMESPAN) {
-            const rect = playerWrapper.getBoundingClientRect();
-            const x = e.clientX - rect.left;
-            if (x < rect.width / 2) {
-                skipVideo(-10);
-            } else {
-                skipVideo(10);
-            }
-        }
-        lastTap = now;
-    };
-    */
-
-    function skipVideo(seconds) {
-        // Function disabled
-        return;
+function openShortsPlayerByCat(catId, videoId) {
+    const catShorts = allVideos.filter(v => v.category_id === catId && v.type === 'short');
+    const index = catShorts.findIndex(v => v._id === videoId);
+    if(index !== -1) {
+        // Replace temp global shorts logic for category view
+        shortsVideos = catShorts; 
+        openShortsPlayer(index);
     }
 }
 
-function formatTime(seconds) {
-    if (isNaN(seconds)) return "0:00";
-    const min = Math.floor(seconds / 60);
-    const sec = Math.floor(seconds % 60);
-    return `${min}:${sec < 10 ? '0' : ''}${sec}`;
+function closeShorts() {
+    shortsContainer.classList.add("hidden");
+    if(shortsObserver) shortsObserver.disconnect();
+    shortsWrapper.innerHTML = ""; // Stop all videos
+    shortsVideos = allVideos.filter(v => v.type === "short"); // Reset back
 }
 
-document.querySelector('.close-btn').onclick = () => {
-    const overlay = document.getElementById('video-overlay');
-    const player = document.getElementById('long-video-player');
-    overlay.style.display = 'none';
-    player.pause();
-    player.src = "";
-};
+/* =======================================
+   POINTS 3, 4, 5, 8: LONG VIDEO PLAYER
+======================================= */
+const videoOverlay = document.getElementById("video-player-overlay");
+const playerContainer = document.getElementById("playerContainer");
+const video = document.getElementById("longVideoPlayer");
+const playPauseBtn = document.getElementById("playPauseBtn");
+const muteBtn = document.getElementById("muteBtn");
+const fullscreenBtn = document.getElementById("fullscreenBtn");
+const progressBar = document.getElementById("progressBar");
+const bufferBar = document.getElementById("bufferBar");
+const progressContainer = document.getElementById("progressContainer");
+const timeDisplay = document.getElementById("timeDisplay");
+const playerControls = document.getElementById("playerControls");
+const loadingSpinner = document.getElementById("loadingSpinner");
+const rewindInd = document.getElementById("rewindIndicator");
+const forwardInd = document.getElementById("forwardIndicator");
 
-// View Tracking
-function trackView(videoId, videoElement) {
-    let viewed = false;
-    const checkView = () => {
-        if (!viewed && videoElement.currentTime >= 3) {
-            viewed = true;
-            fetch(`/api/views/${videoId}`, { method: 'POST' });
-            videoElement.removeEventListener('timeupdate', checkView);
-        }
-    };
-    videoElement.addEventListener('timeupdate', checkView);
-}
+let controlsTimeout;
+let lastTap = 0;
 
-function toggleDropdown(listId) {
-    const list = document.getElementById(listId);
-    const box = list.previousElementSibling;
-    const allLists = document.querySelectorAll('.custom-options-list');
+function openLongPlayer(videoId) {
+    const vData = allVideos.find(v => v._id === videoId);
+    if(!vData) return;
+
+    videoOverlay.classList.remove("hidden");
+    document.getElementById("playerVideoTitle").innerText = vData.title;
+    document.getElementById("playerVideoViews").innerText = (vData.view_count || 0) + " views";
     
-    // Close other dropdowns
-    allLists.forEach(l => {
-        if (l.id !== listId) {
-            l.style.display = 'none';
-            l.parentElement.classList.remove('dropdown-active');
-        }
-    });
+    video.src = `${API_BASE}/stream/${videoId}`;
+    video.play();
+    playPauseBtn.innerHTML = '<i class="fas fa-pause"></i>';
+    
+    fetch(`${API_BASE}/views/${videoId}`, { method: 'POST' });
+    resetControlsTimeout();
+}
 
-    if (list.style.display === 'block') {
-        list.style.display = 'none';
-        box.parentElement.classList.remove('dropdown-active');
+function closePlayer() {
+    videoOverlay.classList.add("hidden");
+    video.pause();
+    video.src = "";
+    if (document.fullscreenElement) { document.exitFullscreen(); }
+}
+
+// Show/Hide Controls on Tap (Point 4)
+function toggleControls() {
+    if (playerControls.classList.contains("hide")) {
+        playerControls.classList.remove("hide");
+        resetControlsTimeout();
     } else {
-        list.style.display = 'block';
-        box.parentElement.classList.add('dropdown-active');
+        playerControls.classList.add("hide");
     }
 }
 
-function selectOption(option, hiddenInputId, boxId, textId) {
-    const hiddenInput = document.getElementById(hiddenInputId);
-    const boxText = document.getElementById(textId);
-    const list = option.parentElement;
-
-    hiddenInput.value = option.dataset.id;
-    boxText.innerText = option.innerText;
-    boxText.style.color = 'white';
-
-    list.querySelectorAll('.custom-option').forEach(o => o.classList.remove('selected'));
-    option.classList.add('selected');
-
-    list.style.display = 'none';
-    list.parentElement.classList.remove('dropdown-active');
+function resetControlsTimeout() {
+    clearTimeout(controlsTimeout);
+    playerControls.classList.remove("hide");
+    if (!video.paused) {
+        controlsTimeout = setTimeout(() => {
+            playerControls.classList.add("hide");
+        }, 3000);
+    }
 }
 
-// Close dropdowns on outside click
-document.addEventListener('click', (e) => {
-    if (!e.target.closest('.custom-select-wrapper')) {
-        document.querySelectorAll('.custom-options-list').forEach(l => l.style.display = 'none');
-        document.querySelectorAll('.custom-select-wrapper').forEach(w => w.classList.remove('dropdown-active'));
+// Double Tap to Skip Logic (Point 3 & 4 tap handler)
+playerContainer.addEventListener('click', (e) => {
+    // Ignore clicks on controls bar itself
+    if(e.target.closest('.controls-bottom') || e.target.closest('.close-player-btn')) return;
+
+    let currentTime = new Date().getTime();
+    let tapGap = currentTime - lastTap;
+    
+    if (tapGap < 300 && tapGap > 0) {
+        // It's a double tap
+        clearTimeout(controlsTimeout);
+        let rect = playerContainer.getBoundingClientRect();
+        let tapX = e.clientX - rect.left;
+        
+        if (tapX < rect.width / 2) {
+            // Rewind
+            video.currentTime -= 10;
+            rewindInd.classList.add('show');
+            setTimeout(() => rewindInd.classList.remove('show'), 500);
+        } else {
+            // Forward
+            video.currentTime += 10;
+            forwardInd.classList.add('show');
+            setTimeout(() => forwardInd.classList.remove('show'), 500);
+        }
+    } else {
+        // Single tap
+        toggleControls();
+    }
+    lastTap = currentTime;
+});
+
+// Buffering Spinner (Point 3)
+video.addEventListener('waiting', () => { loadingSpinner.classList.remove('hidden'); });
+video.addEventListener('playing', () => { loadingSpinner.classList.add('hidden'); });
+video.addEventListener('canplay', () => { loadingSpinner.classList.add('hidden'); });
+
+// Progress and Buffer Bar (Point 4)
+video.addEventListener("timeupdate", () => {
+    if (!video.duration) return;
+    
+    // Play Progress
+    const progress = (video.currentTime / video.duration) * 100;
+    progressBar.style.width = `${progress}%`;
+    
+    // Time Display
+    let curMins = Math.floor(video.currentTime / 60);
+    let curSecs = Math.floor(video.currentTime % 60).toString().padStart(2, '0');
+    let durMins = Math.floor(video.duration / 60);
+    let durSecs = Math.floor(video.duration % 60).toString().padStart(2, '0');
+    timeDisplay.innerText = `${curMins}:${curSecs} / ${durMins}:${durSecs}`;
+});
+
+video.addEventListener('progress', () => {
+    if (video.duration > 0 && video.buffered.length > 0) {
+        // Download Buffer Progress
+        const bufferedEnd = video.buffered.end(video.buffered.length - 1);
+        const bufferProgress = (bufferedEnd / video.duration) * 100;
+        bufferBar.style.width = `${bufferProgress}%`;
     }
 });
 
-// Admin Logic
-async function loadCategories() {
-    const response = await fetch('/api/categories');
-    const categories = await response.json();
-    
-    // Render Admin Upload Dropdown Options
-    const uploadList = document.getElementById('upload-category-list');
-    if (uploadList) {
-        uploadList.innerHTML = categories.map(c => `
-            <div class="custom-option" data-id="${c._id}" onclick="selectOption(this, 'video-category', 'upload-category-box', 'upload-selected-text')">${c.name}</div>
-        `).join('');
+// Seek Video
+progressContainer.addEventListener("click", (e) => {
+    const width = progressContainer.clientWidth;
+    const clickX = e.offsetX;
+    const duration = video.duration;
+    video.currentTime = (clickX / width) * duration;
+    resetControlsTimeout();
+});
+
+// Play/Pause button
+playPauseBtn.addEventListener("click", () => {
+    if (video.paused) {
+        video.play();
+        playPauseBtn.innerHTML = '<i class="fas fa-pause"></i>';
+        resetControlsTimeout();
+    } else {
+        video.pause();
+        playPauseBtn.innerHTML = '<i class="fas fa-play"></i>';
+        clearTimeout(controlsTimeout);
+        playerControls.classList.remove("hide");
     }
+});
 
-    // For Category Page UI
-    const container = document.getElementById('category-sections');
-    if (!container) return;
-    container.innerHTML = '';
+// Mute button
+muteBtn.addEventListener("click", () => {
+    video.muted = !video.muted;
+    muteBtn.innerHTML = video.muted ? '<i class="fas fa-volume-mute"></i>' : '<i class="fas fa-volume-up"></i>';
+    resetControlsTimeout();
+});
 
-    // Fetch all videos to distribute them by category (more efficient than many small calls)
-    const videosResponse = await fetch('/api/videos');
-    const allVideos = await videosResponse.json();
-
-    for (const cat of categories) {
-        const catVideos = allVideos.filter(v => v.category_id === cat._id);
-        if (catVideos.length === 0) continue;
-
-        const section = document.createElement('div');
-        section.className = 'category-section';
-        
-        section.innerHTML = `
-            <div class="section-header">
-                <h3 style="font-size:16px;">${cat.name}</h3>
-                <button class="view-all-btn" onclick="loadCategoryDetail('${cat._id}', '${cat.name}')">View All</button>
-            </div>
-            <div class="horizontal-scroll">
-                ${catVideos.slice(0, 5).map(v => `
-                    <div class="cat-thumb-card" onclick="openVideo('${v._id}')">
-                        <div class="cat-thumb-img">
-                            <img src="/api/stream?file_id=${encodeURIComponent(v.thumbnail_id)}&is_image=true">
-                        </div>
-                        <div class="cat-video-title">${v.title}</div>
-                    </div>
-                `).join('')}
-            </div>
-        `;
-        container.appendChild(section);
-    }
-}
-
-async function loadCategoryDetail(catId, catName) {
-    // Switch Page
-    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-    document.getElementById('category-detail-page').classList.add('active');
-    
-    document.getElementById('category-detail-title').innerText = catName;
-    const detailContent = document.getElementById('category-detail-content');
-    detailContent.innerHTML = '<p style="padding:20px;">Loading category videos...</p>';
-
-    const response = await fetch(`/api/videos/category/${catId}`);
-    const videos = await response.json();
-
-    detailContent.innerHTML = '';
-    const list = createLongList(videos);
-    detailContent.appendChild(list);
-}
-
-function openVideo(videoId) {
-    // Helper to open player based on video object (fetches first)
-    fetch('/api/videos').then(res => res.json()).then(videos => {
-        const video = videos.find(v => v._id === videoId);
-        if (video) {
-            if (video.type === 'short') {
-                openShortsAt(video._id);
-            } else {
-                openLongPlayer(video);
+// Auto-Rotate & Fullscreen Logic (Point 8)
+fullscreenBtn.addEventListener("click", async () => {
+    try {
+        if (!document.fullscreenElement) {
+            await playerContainer.requestFullscreen();
+            fullscreenBtn.innerHTML = '<i class="fas fa-compress"></i>';
+            // Try to force landscape orientation if supported (Mobile)
+            if (screen.orientation && screen.orientation.lock) {
+                await screen.orientation.lock("landscape").catch(e => console.log("Orientation lock not supported"));
+            }
+        } else {
+            await document.exitFullscreen();
+            fullscreenBtn.innerHTML = '<i class="fas fa-expand"></i>';
+            // Unlock orientation back to portrait
+            if (screen.orientation && screen.orientation.unlock) {
+                screen.orientation.unlock();
             }
         }
-    });
-}
-
-function showAdminTab(tab) {
-    document.querySelectorAll('.admin-tab-content').forEach(c => c.style.display = 'none');
-    document.getElementById(`admin-${tab}`).style.display = 'block';
-    
-    // Update active button state
-    document.querySelectorAll('.admin-tabs button').forEach(btn => btn.classList.remove('active-tab'));
-    if (window.event && window.event.currentTarget) {
-        window.event.currentTarget.classList.add('active-tab');
+    } catch (e) {
+        console.log("Fullscreen Error:", e);
     }
-}
-
-document.getElementById('category-form').onsubmit = async (e) => {
-    e.preventDefault();
-    const nameInput = document.getElementById('new-category-name');
-    const name = nameInput.value;
-    const formData = new FormData();
-    formData.append('name', name);
-
-    const response = await fetch('/api/admin/categories', {
-        method: 'POST',
-        headers: { 'X-Telegram-Init-Data': tg.initData },
-        body: formData
-    });
-    if (response.ok) {
-        alert('Category created!');
-        nameInput.value = ''; // Clear input
-        loadCategories();
-    }
-};
-
-document.getElementById('upload-form').onsubmit = async (e) => {
-    e.preventDefault();
-    const form = e.target;
-    const formData = new FormData();
-    formData.append('title', document.getElementById('video-title').value);
-    formData.append('category_id', document.getElementById('video-category').value);
-    formData.append('type', document.querySelector('input[name="video-type"]:checked').value);
-    formData.append('video_file', document.getElementById('video-file').files[0]);
-
-    const progressContainer = document.getElementById('upload-progress-container');
-    const progressBar = document.getElementById('upload-progress-bar');
-    const statusText = document.getElementById('upload-status-message');
-    const uploadBtn = document.getElementById('upload-btn');
-    
-    progressContainer.style.display = 'block';
-    statusText.style.color = 'white';
-    uploadBtn.disabled = true;
-    uploadBtn.style.opacity = '0.5';
-    
-    const xhr = new XMLHttpRequest();
-    xhr.open('POST', '/api/admin/upload', true);
-    xhr.setRequestHeader('X-Telegram-Init-Data', tg.initData);
-
-    xhr.upload.onprogress = (e) => {
-        if (e.lengthComputable) {
-            const percent = Math.round((e.loaded / e.total) * 100);
-            progressBar.style.width = percent + '%';
-            statusText.innerText = `Uploading: ${percent}%`;
-        }
-    };
-
-    xhr.onload = () => {
-        uploadBtn.disabled = false;
-        uploadBtn.style.opacity = '1';
-        if (xhr.status === 200) {
-            statusText.innerText = '✅ Video Uploaded Successfully!';
-            statusText.style.color = '#4CAF50';
-            setTimeout(() => {
-                progressContainer.style.display = 'none';
-                progressBar.style.width = '0%';
-                form.reset();
-                // Reset custom dropdown UI
-                document.getElementById('upload-selected-text').innerText = 'Select Category';
-                document.getElementById('upload-selected-text').style.color = 'var(--text-secondary)';
-                document.getElementById('video-category').value = '';
-                loadHome();
-            }, 3000);
-        } else {
-            statusText.innerText = '❌ Upload Failed: ' + xhr.responseText;
-            statusText.style.color = '#FF5252';
-        }
-    };
-
-    xhr.onerror = () => {
-        uploadBtn.disabled = false;
-        uploadBtn.style.opacity = '1';
-        statusText.innerText = '❌ Connection Error!';
-        statusText.style.color = '#FF5252';
-    };
-
-    xhr.send(formData);
-};
-
-let allAdminVideos = [];
-async function loadAdminVideos() {
-    const response = await fetch('/api/videos');
-    allAdminVideos = await response.json();
-    renderAdminVideoList(allAdminVideos);
-    
-    // Setup Admin Search
-    const searchInput = document.getElementById('admin-video-search');
-    searchInput.oninput = (e) => {
-        const query = e.target.value.toLowerCase();
-        const filtered = allAdminVideos.filter(v => v.title.toLowerCase().includes(query));
-        renderAdminVideoList(filtered);
-    };
-}
-
-function renderAdminVideoList(videos) {
-    const container = document.getElementById('admin-video-list-container');
-    container.innerHTML = '';
-    
-    videos.forEach(v => {
-        const item = document.createElement('div');
-        item.style = "display:flex; align-items:center; background:#222; padding:10px; border-radius:8px; gap:10px;";
-        item.innerHTML = `
-            <img src="/api/stream?file_id=${encodeURIComponent(v.thumbnail_id)}&is_image=true" style="width:60px; height:40px; object-fit:cover; border-radius:4px;">
-            <div style="flex:1;">
-                <div style="font-size:14px; font-weight:bold;">${v.title}</div>
-                <div style="font-size:12px; color:#aaa;">${v.type} | ${v.view_count} views</div>
-            </div>
-            <div style="display:flex; gap:5px;">
-                <button onclick="openEditModal('${v._id}', '${v.title}', '${v.category_id}')" style="background:#444; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:12px;">Edit</button>
-                <button onclick="deleteVideo('${v._id}')" style="background:red; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:12px;">Delete</button>
-            </div>
-        `;
-        container.appendChild(item);
-    });
-}
-
-async function deleteVideo(id) {
-    if (!confirm('Are you sure you want to delete this video?')) return;
-    const response = await fetch(`/api/admin/video/${id}`, {
-        method: 'DELETE',
-        headers: { 'X-Telegram-Init-Data': tg.initData }
-    });
-    if (response.ok) {
-        alert('Video deleted!');
-        loadAdminVideos();
-        loadHome();
-    }
-}
-
-async function openEditModal(id, title, catId) {
-    const modal = document.getElementById('edit-modal');
-    modal.style.display = 'block';
-    document.getElementById('edit-video-id').value = id;
-    document.getElementById('edit-video-title').value = title;
-    
-    const response = await fetch('/api/categories');
-    const cats = await response.json();
-    const list = document.getElementById('edit-category-list');
-    const boxText = document.getElementById('edit-selected-text');
-    const hiddenInput = document.getElementById('edit-video-category');
-    
-    // Find current category name
-    const currentCat = cats.find(c => c._id === catId);
-    boxText.innerText = currentCat ? currentCat.name : 'Select Category';
-    boxText.style.color = 'white';
-    hiddenInput.value = catId;
-
-    list.innerHTML = cats.map(c => `
-        <div class="custom-option ${c._id === catId ? 'selected' : ''}" data-id="${c._id}" onclick="selectOption(this, 'edit-video-category', 'edit-category-box', 'edit-selected-text')">${c.name}</div>
-    `).join('');
-}
-
-document.getElementById('edit-form').onsubmit = async (e) => {
-    e.preventDefault();
-    const id = document.getElementById('edit-video-id').value;
-    const formData = new FormData();
-    formData.append('title', document.getElementById('edit-video-title').value);
-    formData.append('category_id', document.getElementById('edit-video-category').value);
-
-    const response = await fetch(`/api/admin/video/${id}`, {
-        method: 'PATCH',
-        headers: { 'X-Telegram-Init-Data': tg.initData },
-        body: formData
-    });
-    if (response.ok) {
-        alert('Update successful!');
-        document.getElementById('edit-modal').style.display = 'none';
-        loadAdminVideos();
-        loadHome();
-    }
-};
-
-function formatViews(n) {
-    if (n < 1000) return n;
-    if (n < 1000000) return (n/1000).toFixed(1) + 'K';
-    return (n/1000000).toFixed(1) + 'M';
-}
-
-async function loadSuggestions(currentId) {
-    const response = await fetch('/api/videos?type=long');
-    const videos = await response.json();
-    const suggestions = videos.filter(v => v._id !== currentId).sort(() => 0.5 - Math.random()).slice(0, 5);
-    
-    const list = document.getElementById('suggestion-list');
-    list.innerHTML = '';
-    suggestions.forEach(s => {
-        const item = document.createElement('div');
-        item.className = 'long-card';
-        item.innerHTML = `
-            <div class="thumbnail-container" style="aspect-ratio: 16/9;">
-                <img src="/api/stream?file_id=${encodeURIComponent(s.thumbnail_id)}&is_image=true">
-            </div>
-            <div style="font-size:12px;">${s.title}</div>
-        `;
-        item.onclick = () => openLongPlayer(s);
-        list.appendChild(item);
-    });
-}
+});
