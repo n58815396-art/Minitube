@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Mini Clips</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body>
+    <div id="app">
+        <!-- Top Bar -->
+        <header class="top-bar">
+            <div class="logo">Mini Clips</div>
+            <div class="search-icon">
+                <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+            </div>
+        </header>
+
+        <!-- Content Area -->
+        <main id="content">
+            <!-- Home Page -->
+            <section id="home-page" class="page active">
+                <div id="home-content">
+                    <!-- Dynamic content: 2x2 Shorts -> 5 Long -> 2x2 Shorts -->
+                </div>
+            </section>
+
+            <!-- Shorts Page -->
+            <section id="shorts-page" class="page">
+                <div class="shorts-container" id="shorts-container">
+                    <!-- Vertical full-screen swiping player -->
+                </div>
+            </section>
+
+            <!-- Category Page -->
+            <section id="category-page" class="page">
+                <div class="category-list" id="category-list"></div>
+            </section>
+
+            <!-- Admin Page -->
+            <section id="admin-page" class="page">
+                <h2>Admin Panel</h2>
+                <div class="admin-tabs">
+                    <button onclick="showAdminTab('upload')">Upload</button>
+                    <button onclick="showAdminTab('categories')">Categories</button>
+                    <button onclick="showAdminTab('videos')">Videos</button>
+                </div>
+                
+                <div id="admin-upload" class="admin-tab-content">
+                    <form id="upload-form">
+                        <input type="text" id="video-title" placeholder="Title" required>
+                        <select id="video-category" required></select>
+                        <div class="radio-group">
+                            <label><input type="radio" name="video-type" value="Short" checked> Short</label>
+                            <label><input type="radio" name="video-type" value="Long"> Long</label>
+                        </div>
+                        <input type="file" id="video-file" accept="video/*" required>
+                        <button type="submit" id="upload-btn">Upload Video</button>
+                    </form>
+                    <div id="upload-progress-container" style="display:none;">
+                        <div id="upload-progress-bar"></div>
+                        <span id="upload-status">0%</span>
+                    </div>
+                </div>
+
+                <div id="admin-categories" class="admin-tab-content" style="display:none;">
+                    <form id="category-form">
+                        <input type="text" id="new-category-name" placeholder="Category Name" required>
+                        <button type="submit">Create Category</button>
+                    </form>
+                </div>
+
+                <div id="admin-videos" class="admin-tab-content" style="display:none;">
+                    <ul id="admin-video-list"></ul>
+                </div>
+            </section>
+        </main>
+
+        <!-- Bottom Navigation -->
+        <nav class="bottom-nav">
+            <button class="nav-item active" data-page="home-page">
+                <svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+                <span>Home</span>
+            </button>
+            <button class="nav-item" data-page="shorts-page">
+                <svg viewBox="0 0 24 24"><path d="M10 8.64L15.27 12 10 15.36V8.64M8 5v14l11-7L8 5z"/></svg>
+                <span>Shorts</span>
+            </button>
+            <button class="nav-item" data-page="trending">
+                <svg viewBox="0 0 24 24"><path d="M13.5 13.48l-4-4L2 16.99l1.5 1.5 6-6.01 4 4L22 6.92l-1.41-1.41z"/></svg>
+                <span>Trending</span>
+            </button>
+            <button class="nav-item" data-page="category-page">
+                <svg viewBox="0 0 24 24"><path d="M4 8h4V4H4v4zm6 12h4v-4h-4v4zm-6 0h4v-4H4v4zm0-6h4v-4H4v4zm6 0h4v-4h-4v4zm6-10v4h4V4h-4zm-6 4h4V4h-4v4zm6 6h4v-4h-4v4zm0 6h4v-4h-4v4z"/></svg>
+                <span>Category</span>
+            </button>
+            <button class="nav-item" data-page="admin-page" id="admin-nav-btn" style="display:none;">
+                <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
+                <span>Admin</span>
+            </button>
+        </nav>
+    </div>
+
+    <!-- Long Video Player Overlay -->
+    <div id="video-overlay" class="overlay">
+        <div class="player-container">
+            <button class="close-btn">&times;</button>
+            <video id="long-video-player" controls autoplay></video>
+            <div class="video-info">
+                <h3 id="player-title"></h3>
+                <p id="player-views"></p>
+            </div>
+            <div class="suggestions">
+                <h4>Suggestions</h4>
+                <div id="suggestion-list"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

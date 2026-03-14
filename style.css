@@ -1,0 +1,282 @@
+:root {
+    --bg-color: #0f0f0f;
+    --text-color: #ffffff;
+    --accent-color: #ff0000;
+    --nav-bg: #0f0f0f;
+    --card-bg: #1e1e1e;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    -webkit-tap-highlight-color: transparent;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    overflow-x: hidden;
+}
+
+#app {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+}
+
+/* Top Bar */
+.top-bar {
+    height: 56px;
+    padding: 0 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: fixed;
+    top: 0;
+    width: 100%;
+    background: var(--bg-color);
+    z-index: 100;
+}
+
+.logo {
+    font-size: 20px;
+    font-weight: bold;
+    color: var(--accent-color);
+}
+
+.search-icon svg {
+    width: 24px;
+    height: 24px;
+    fill: white;
+}
+
+/* Content Area */
+main {
+    flex: 1;
+    margin-top: 56px;
+    margin-bottom: 60px;
+    overflow-y: auto;
+}
+
+.page {
+    display: none;
+    padding: 10px;
+}
+
+.page.active {
+    display: block;
+}
+
+/* Bottom Nav */
+.bottom-nav {
+    height: 60px;
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+    position: fixed;
+    bottom: 0;
+    width: 100%;
+    background: var(--nav-bg);
+    border-top: 1px solid #333;
+    z-index: 100;
+}
+
+.nav-item {
+    background: none;
+    border: none;
+    color: #aaa;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    font-size: 10px;
+    cursor: pointer;
+}
+
+.nav-item.active {
+    color: white;
+}
+
+.nav-item svg {
+    width: 24px;
+    height: 24px;
+    fill: currentColor;
+    margin-bottom: 4px;
+}
+
+/* Grid Layouts */
+.shorts-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 20px;
+}
+
+.short-card {
+    aspect-ratio: 9/16;
+    background: var(--card-bg);
+    border-radius: 8px;
+    overflow: hidden;
+    position: relative;
+}
+
+.long-list {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    margin-bottom: 20px;
+}
+
+.long-card {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.thumbnail-container {
+    width: 100%;
+    aspect-ratio: 16/9;
+    background: var(--card-bg);
+    border-radius: 8px;
+    overflow: hidden;
+    position: relative;
+}
+
+.thumbnail-container img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.view-badge {
+    position: absolute;
+    bottom: 5px;
+    right: 5px;
+    background: rgba(0,0,0,0.7);
+    padding: 2px 5px;
+    border-radius: 4px;
+    font-size: 10px;
+}
+
+/* Shorts Player */
+.shorts-container {
+    height: calc(100vh - 116px);
+    overflow-y: scroll;
+    scroll-snap-type: y mandatory;
+}
+
+.short-video-wrapper {
+    height: 100%;
+    scroll-snap-align: start;
+    position: relative;
+}
+
+.short-video-wrapper video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+/* Admin Panel */
+.admin-tabs {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+}
+
+.admin-tabs button {
+    flex: 1;
+    padding: 8px;
+    background: #333;
+    color: white;
+    border: none;
+    border-radius: 4px;
+}
+
+form {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+input, select, button[type="submit"] {
+    padding: 12px;
+    border-radius: 4px;
+    border: 1px solid #444;
+    background: #222;
+    color: white;
+}
+
+button[type="submit"] {
+    background: var(--accent-color);
+    font-weight: bold;
+}
+
+#upload-progress-container {
+    margin-top: 10px;
+    height: 20px;
+    background: #333;
+    border-radius: 10px;
+    overflow: hidden;
+    position: relative;
+}
+
+#upload-progress-bar {
+    height: 100%;
+    width: 0%;
+    background: var(--accent-color);
+    transition: width 0.3s;
+}
+
+#upload-status {
+    position: absolute;
+    width: 100%;
+    text-align: center;
+    font-size: 12px;
+    line-height: 20px;
+}
+
+/* Overlay */
+.overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: var(--bg-color);
+    z-index: 1000;
+}
+
+.player-container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.close-btn {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    font-size: 30px;
+    color: white;
+    background: none;
+    border: none;
+    z-index: 1100;
+}
+
+video#long-video-player {
+    width: 100%;
+    aspect-ratio: 16/9;
+}
+
+.video-info {
+    padding: 15px;
+}
+
+.suggestions {
+    padding: 15px;
+    flex: 1;
+    overflow-y: auto;
+}

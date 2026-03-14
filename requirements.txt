@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+motor
+pyrogram
+tgcrypto
+python-dotenv
+ffmpeg-python
+python-multipart
+aiofiles
