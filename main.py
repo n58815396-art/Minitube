@@ -239,6 +239,7 @@ async def upload_video(
         "type": video_type,
         "category_id": category_id,
         "file_id": file_id,
+        "file_size": video_msg.video.file_size, # For Range support
         "thumbnail_id": thumbnail_id,
         "view_count": 0,
         "created_at": datetime.utcnow()
@@ -250,6 +251,67 @@ async def upload_video(
     if os.path.exists(thumb_path): os.remove(thumb_path)
 
     return {"status": "success"}
+
+# --- Professional Video Streaming Logic ---
+
+@app.get("/api/stream/{video_id}")
+async def stream_video(video_id: str, request: Request):
+    try:
+        video = await db.videos.find_one({"_id": ObjectId(video_id)})
+    except:
+        raise HTTPException(status_code=400, detail="Invalid Video ID")
+        
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+    
+    file_id = video["file_id"]
+    file_size = video.get("file_size", 0)
+    
+    if file_size == 0:
+        # Fallback if size missing
+        async def fallback_generator():
+            async for chunk in tg_client.stream_media(file_id):
+                yield chunk
+        return StreamingResponse(fallback_generator(), media_type="video/mp4")
+
+    # Parse Range Header
+    range_header = request.headers.get("Range")
+    start = 0
+    end = file_size - 1
+    
+    if range_header:
+        try:
+            range_parts = range_header.replace("bytes=", "").split("-")
+            start = int(range_parts[0])
+            if range_parts[1]:
+                end = int(range_parts[1])
+        except:
+            pass
+
+    start = max(0, start)
+    end = min(end, file_size - 1)
+    chunk_size = (end - start) + 1
+
+    async def video_generator():
+        try:
+            # Stream specific byte range from Telegram
+            async for chunk in tg_client.stream_media(file_id, offset=start, limit=chunk_size):
+                yield chunk
+                await asyncio.sleep(0)
+        except Exception as e:
+            print(f"Streaming Error: {e}")
+
+    return StreamingResponse(
+        video_generator(),
+        status_code=206,
+        media_type="video/mp4",
+        headers={
+            "Accept-Ranges": "bytes",
+            "Content-Range": f"bytes {start}-{end}/{file_size}",
+            "Content-Length": str(chunk_size),
+            "Cache-Control": "public, max-age=3600"
+        }
+    )
 
 # --- Serve Frontend ---
 if not os.path.exists("static"):
