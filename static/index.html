@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Mini Clips</title>
+    <title>TeleTube</title>
     <link rel="stylesheet" href="style.css">
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
@@ -11,14 +11,30 @@
     <div id="app">
         <!-- Top Bar -->
         <header class="top-bar">
-            <div class="logo">Mini Clips</div>
-            <div class="search-icon">
-                <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+            <div class="logo" style="display: flex; align-items: center; font-family: 'Arial Black', Gadget, sans-serif;">
+                <svg viewBox="0 0 24 24" style="width:28px; height:28px; fill:var(--accent-color); margin-right:6px;"><path d="M21.58 7.19c-.23-.86-.91-1.54-1.77-1.77C18.25 5 12 5 12 5s-6.25 0-7.81.42c-.86.23-1.54.91-1.77 1.77C2 8.75 2 12 2 12s0 3.25.42 4.81c.23.86.91 1.54 1.77 1.77C5.75 19 12 19 12 19s6.25 0 7.81-.42c.86-.23 1.54-.91 1.77-1.77.42-1.56.42-4.81.42-4.81s0-3.25-.42-4.81zM10 15V9l5.2 3-5.2 3z"/></svg>
+                <span style="color: white;">Tele</span><span style="background: var(--accent-color); color: white; padding: 2px 6px; border-radius: 6px; margin-left: 2px;">Tube</span>
+            </div>
+            <div class="search-container" style="display:none; flex:1; margin-left:10px;">
+                <input type="text" id="search-input" placeholder="Search videos..." style="width:100%; padding:5px; border-radius:15px; border:none; background:#333; color:white;">
+            </div>
+            <div class="search-icon" id="search-btn">
+                <svg viewBox="0 0 24 24" style="width:24px; height:24px; fill:white;"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
             </div>
         </header>
 
         <!-- Content Area -->
         <main id="content">
+            <!-- Search Page -->
+            <section id="search-page" class="page">
+                <div id="search-results"></div>
+            </section>
+
+            <!-- Trending Page -->
+            <section id="trending-page" class="page">
+                <h2 style="padding:10px;">Trending Videos</h2>
+                <div id="trending-content"></div>
+            </section>
             <!-- Home Page -->
             <section id="home-page" class="page active">
                 <div id="home-content">
@@ -28,6 +44,17 @@
 
             <!-- Shorts Page -->
             <section id="shorts-page" class="page">
+                <div style="position: absolute; top: 10px; right: 10px; z-index: 1000;">
+                    <button id="shorts-sort-btn" style="background: rgba(0,0,0,0.5); border: 1px solid #444; color: white; padding: 5px 10px; border-radius: 20px; font-size: 12px; display: flex; align-items: center; gap: 5px;">
+                        <svg viewBox="0 0 24 24" style="width:16px; height:16px; fill:currentColor;"><path d="M3 18h6v-2H3v2zM3 6v2h18V6H3zm0 7h12v-2H3v2z"/></svg>
+                        <span id="current-sort-label">New to Old</span>
+                    </button>
+                    <div id="shorts-sort-menu" style="display: none; position: absolute; top: 35px; right: 0; background: #222; border-radius: 8px; border: 1px solid #444; overflow: hidden; min-width: 120px;">
+                        <div class="sort-option" data-sort="new" style="padding: 10px; font-size: 12px; color: white; border-bottom: 1px solid #333;">New to Old</div>
+                        <div class="sort-option" data-sort="old" style="padding: 10px; font-size: 12px; color: white; border-bottom: 1px solid #333;">Old to New</div>
+                        <div class="sort-option" data-sort="random" style="padding: 10px; font-size: 12px; color: white;">Random Play</div>
+                    </div>
+                </div>
                 <div class="shorts-container" id="shorts-container">
                     <!-- Vertical full-screen swiping player -->
                 </div>
@@ -35,14 +62,23 @@
 
             <!-- Category Page -->
             <section id="category-page" class="page">
-                <div class="category-list" id="category-list"></div>
+                <div id="category-sections"></div>
+            </section>
+
+            <!-- Category Detail Page -->
+            <section id="category-detail-page" class="page">
+                <div style="display:flex; align-items:center; padding:10px;">
+                    <button onclick="document.querySelector('.nav-item[data-page=\'category-page\']').click()" style="background:none; border:none; color:white; font-size:24px; margin-right:10px;">&larr;</button>
+                    <h2 id="category-detail-title">Category</h2>
+                </div>
+                <div id="category-detail-content"></div>
             </section>
 
             <!-- Admin Page -->
             <section id="admin-page" class="page">
                 <h2>Admin Panel</h2>
                 <div class="admin-tabs">
-                    <button onclick="showAdminTab('upload')">Upload</button>
+                    <button onclick="showAdminTab('upload')" class="active-tab">Upload</button>
                     <button onclick="showAdminTab('categories')">Categories</button>
                     <button onclick="showAdminTab('videos')">Videos</button>
                 </div>
@@ -50,7 +86,14 @@
                 <div id="admin-upload" class="admin-tab-content">
                     <form id="upload-form">
                         <input type="text" id="video-title" placeholder="Title" required>
-                        <select id="video-category" required></select>
+                        
+                        <!-- Custom Category Selector -->
+                        <div class="custom-select-label">Select Category:</div>
+                        <div id="upload-category-selector" class="custom-selector-container">
+                            <!-- Categories will be rendered as chips here -->
+                        </div>
+                        <input type="hidden" id="video-category" required>
+
                         <div class="radio-group">
                             <label><input type="radio" name="video-type" value="Short" checked> Short</label>
                             <label><input type="radio" name="video-type" value="Long"> Long</label>
@@ -58,9 +101,11 @@
                         <input type="file" id="video-file" accept="video/*" required>
                         <button type="submit" id="upload-btn">Upload Video</button>
                     </form>
-                    <div id="upload-progress-container" style="display:none;">
-                        <div id="upload-progress-bar"></div>
-                        <span id="upload-status">0%</span>
+                    <div id="upload-progress-container" style="display:none; margin-top:15px;">
+                        <div id="upload-progress-wrapper" style="height:10px; background:#333; border-radius:5px; overflow:hidden;">
+                            <div id="upload-progress-bar" style="height:100%; width:0%; background:var(--accent-color); transition:width 0.3s;"></div>
+                        </div>
+                        <div id="upload-status-message" style="margin-top:10px; text-align:center; font-size:14px; font-weight:bold;">0%</div>
                     </div>
                 </div>
 
@@ -72,10 +117,36 @@
                 </div>
 
                 <div id="admin-videos" class="admin-tab-content" style="display:none;">
-                    <ul id="admin-video-list"></ul>
+                    <div style="padding: 10px 0;">
+                        <input type="text" id="admin-video-search" placeholder="Search and Manage Videos..." style="width:100%; padding:10px; background:#333; border:none; color:white; border-radius:8px;">
+                    </div>
+                    <div id="admin-video-list-container" style="display: flex; flex-direction: column; gap: 10px; margin-top: 10px;">
+                        <!-- Managed video items will go here -->
+                    </div>
                 </div>
             </section>
         </main>
+
+        <!-- Edit Video Modal Overlay -->
+        <div id="edit-modal" class="overlay" style="z-index: 2000; background: rgba(0,0,0,0.9); display: none;">
+            <div style="padding: 20px; background: #1e1e1e; margin: 50px 20px; border-radius: 12px; position: relative;">
+                <button onclick="document.getElementById('edit-modal').style.display='none'" style="position: absolute; top: 10px; right: 10px; background: none; border: none; color: white; font-size: 24px;">&times;</button>
+                <h3>Edit Video Info</h3>
+                <form id="edit-form" style="margin-top: 20px;">
+                    <input type="hidden" id="edit-video-id">
+                    <label>Title</label>
+                    <input type="text" id="edit-video-title" required>
+                    
+                    <label>Category</label>
+                    <div id="edit-category-selector" class="custom-selector-container">
+                        <!-- Categories chips here -->
+                    </div>
+                    <input type="hidden" id="edit-video-category" required>
+                    
+                    <button type="submit" style="margin-top: 10px;">Save Changes</button>
+                </form>
+            </div>
+        </div>
 
         <!-- Bottom Navigation -->
         <nav class="bottom-nav">
@@ -87,7 +158,7 @@
                 <svg viewBox="0 0 24 24"><path d="M10 8.64L15.27 12 10 15.36V8.64M8 5v14l11-7L8 5z"/></svg>
                 <span>Shorts</span>
             </button>
-            <button class="nav-item" data-page="trending">
+            <button class="nav-item" data-page="trending-page">
                 <svg viewBox="0 0 24 24"><path d="M13.5 13.48l-4-4L2 16.99l1.5 1.5 6-6.01 4 4L22 6.92l-1.41-1.41z"/></svg>
                 <span>Trending</span>
             </button>
@@ -104,9 +175,51 @@
 
     <!-- Long Video Player Overlay -->
     <div id="video-overlay" class="overlay">
-        <div class="player-container">
+        <div class="player-container" style="position: relative;">
             <button class="close-btn">&times;</button>
-            <video id="long-video-player" controls autoplay></video>
+            <div id="player-wrapper" style="position: relative; width: 100%; aspect-ratio: 16/9; background: black;">
+                <video id="long-video-player" style="width: 100%; height: 100%;"></video>
+                
+                <!-- Double Tap Feedback Overlays -->
+                <div id="skip-left" class="skip-overlay" style="left: 0;">
+                    <div class="skip-content">
+                        <svg viewBox="0 0 24 24"><path d="M11 18V6l-8.5 6 8.5 6zm.5-6l8.5 6V6l-8.5 6z"/></svg>
+                        <span>10s</span>
+                    </div>
+                </div>
+                <div id="skip-right" class="skip-overlay" style="right: 0;">
+                    <div class="skip-content">
+                        <svg viewBox="0 0 24 24"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"/></svg>
+                        <span>10s</span>
+                    </div>
+                </div>
+
+                <!-- Custom Progress Bar -->
+                <div class="custom-controls" style="position: absolute; bottom: 0; width: 100%; background: linear-gradient(transparent, rgba(0,0,0,0.7)); padding: 10px 0;">
+                    <div id="progress-container" style="height: 4px; background: rgba(255,255,255,0.3); margin: 0 10px; cursor: pointer; position: relative;">
+                        <div id="progress-bar" style="height: 100%; background: red; width: 0%;"></div>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 5px 15px; font-size: 12px; color: white;">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <span id="current-time">0:00</span>
+                            <button id="mute-btn" style="background:none; border:none; color:white; cursor:pointer; padding: 0; display: flex; align-items: center;">
+                                <svg id="mute-icon" viewBox="0 0 24 24" style="width:18px; height:18px; fill:currentColor;">
+                                    <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
+                                </svg>
+                            </button>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <span id="duration">0:00</span>
+                            <button id="fullscreen-btn" style="background:none; border:none; color:white; cursor:pointer; padding: 0; display: flex; align-items: center;">
+                                <svg viewBox="0 0 24 24" style="width:18px; height:18px; fill:currentColor;">
+                                    <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
             <div class="video-info">
                 <h3 id="player-title"></h3>
                 <p id="player-views"></p>
