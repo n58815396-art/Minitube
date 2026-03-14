@@ -239,7 +239,7 @@ async def upload_video(
         "type": video_type,
         "category_id": category_id,
         "file_id": file_id,
-        "file_size": video_msg.video.file_size, # For Range support
+        "file_size": video_msg.video.file_size, # For Range support (waise Option 1 me use nahi hoga, par data safe rahega)
         "thumbnail_id": thumbnail_id,
         "view_count": 0,
         "created_at": datetime.utcnow()
@@ -252,7 +252,7 @@ async def upload_video(
 
     return {"status": "success"}
 
-# --- Professional Video Streaming Logic ---
+# --- Fast Sequential Video Streaming Logic (Option 1) ---
 
 @app.get("/api/stream/{video_id}")
 async def stream_video(video_id: str, request: Request):
@@ -265,68 +265,24 @@ async def stream_video(video_id: str, request: Request):
         raise HTTPException(status_code=404, detail="Video not found")
     
     file_id = video["file_id"]
-    file_size = video.get("file_size", 0)
-    
-    if file_size == 0:
-        # Fallback if size missing
-        async def fallback_generator():
+
+    # Simple & Fast Generator: Bina kisi rukawat ke lagatar data fetch karega
+    async def video_generator():
+        try:
             async for chunk in tg_client.stream_media(file_id):
                 yield chunk
-        return StreamingResponse(fallback_generator(), media_type="video/mp4")
-
-    # Parse Range Header
-    range_header = request.headers.get("Range")
-    start = 0
-    end = file_size - 1
-    
-    if range_header:
-        try:
-            range_parts = range_header.replace("bytes=", "").split("-")
-            start = int(range_parts[0])
-            if range_parts[1]:
-                end = int(range_parts[1])
-        except:
-            pass
-
-    # FIXED: Pyrogram Chunk Mapping Logic
-    start = max(0, start)
-    end = min(end, file_size - 1)
-    req_length = (end - start) + 1
-
-    # Pyrogram chunks are 1MB (1048576 bytes) each
-    CHUNK_SIZE = 1024 * 1024
-    offset_chunks = start // CHUNK_SIZE
-    skip_bytes = start % CHUNK_SIZE
-    limit_chunks = (end // CHUNK_SIZE) - offset_chunks + 1
-
-    async def video_generator():
-        bytes_yielded = 0
-        try:
-            async for chunk in tg_client.stream_media(file_id, limit=limit_chunks, offset=offset_chunks):
-                if bytes_yielded == 0 and skip_bytes > 0:
-                    chunk = chunk[skip_bytes:]
-                
-                if bytes_yielded + len(chunk) > req_length:
-                    chunk = chunk[:req_length - bytes_yielded]
-                
-                yield chunk
-                bytes_yielded += len(chunk)
-                await asyncio.sleep(0)
-                
-                if bytes_yielded >= req_length:
-                    break
+                # Chota sa sleep taaki server baki requests (jaise views update) bhi handle kar sake
+                await asyncio.sleep(0.001) 
         except Exception as e:
-            print(f"Streaming Error: {e}")
+            print(f"Streaming Connection Closed/Error: {e}")
 
+    # Standard 200 OK Response (No Partial Content/Range headers)
+    # Isse browser ko pata chal jayega ki direct stream aa rahi hai, seek/skip nahi karna hai.
     return StreamingResponse(
         video_generator(),
-        status_code=206,
         media_type="video/mp4",
         headers={
-            "Accept-Ranges": "bytes",
-            "Content-Range": f"bytes {start}-{end}/{file_size}",
-            "Content-Length": str(req_length),
-            "Cache-Control": "public, max-age=3600"
+            "Cache-Control": "no-cache"
         }
     )
 
