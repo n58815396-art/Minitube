@@ -137,19 +137,24 @@ async def get_categories():
         categories.append(doc)
     return categories
 
-@app.get("/api/stream/{file_id}")
+@app.get("/api/stream")
 async def stream_media(file_id: str, is_image: bool = False):
-    async def generator():
-        # Using a larger chunk size for smoother playback
+    if is_image:
+        # Fix: Simple stream for images to avoid MIME/Header blocks on mobile
+        async def image_generator():
+            async for chunk in tg_client.stream_media(file_id):
+                yield chunk
+        return StreamingResponse(image_generator(), media_type="image/jpeg")
+
+    # Fix: Optimized stream for videos
+    async def video_generator():
         async for chunk in tg_client.stream_media(file_id, limit=0, offset=0, chunk_size=512 * 1024):
             yield chunk
             await asyncio.sleep(0)
     
-    media_type = "image/jpeg" if is_image else "video/mp4"
-    
     return StreamingResponse(
-        generator(), 
-        media_type=media_type,
+        video_generator(), 
+        media_type="video/mp4",
         headers={
             "Accept-Ranges": "bytes",
             "Cache-Control": "public, max-age=3600"
