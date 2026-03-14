@@ -202,7 +202,7 @@ function createShortsGrid(shorts) {
         const card = document.createElement('div');
         card.className = 'short-card';
         card.innerHTML = `
-            <img src="/api/stream/${s.thumbnail_id}">
+            <img src="/api/stream/${s.thumbnail_id}?is_image=true">
             <div class="short-info">
                 <div class="short-title">${s.title}</div>
                 <div style="font-size:10px; color:#ccc;">${formatViews(s.view_count)} views</div>
@@ -222,7 +222,7 @@ function createLongList(longs) {
         card.className = 'long-card';
         card.innerHTML = `
             <div class="thumbnail-container">
-                <img src="/api/stream/${l.thumbnail_id}">
+                <img src="/api/stream/${l.thumbnail_id}?is_image=true">
                 <div class="view-badge" style="bottom:8px; right:8px;">${formatViews(l.view_count)} views</div>
             </div>
             <div class="long-info">
@@ -437,16 +437,62 @@ function trackView(videoId, videoElement) {
     videoElement.addEventListener('timeupdate', checkView);
 }
 
+function toggleDropdown(listId) {
+    const list = document.getElementById(listId);
+    const box = list.previousElementSibling;
+    const allLists = document.querySelectorAll('.custom-options-list');
+    
+    // Close other dropdowns
+    allLists.forEach(l => {
+        if (l.id !== listId) {
+            l.style.display = 'none';
+            l.parentElement.classList.remove('dropdown-active');
+        }
+    });
+
+    if (list.style.display === 'block') {
+        list.style.display = 'none';
+        box.parentElement.classList.remove('dropdown-active');
+    } else {
+        list.style.display = 'block';
+        box.parentElement.classList.add('dropdown-active');
+    }
+}
+
+function selectOption(option, hiddenInputId, boxId, textId) {
+    const hiddenInput = document.getElementById(hiddenInputId);
+    const boxText = document.getElementById(textId);
+    const list = option.parentElement;
+
+    hiddenInput.value = option.dataset.id;
+    boxText.innerText = option.innerText;
+    boxText.style.color = 'white';
+
+    list.querySelectorAll('.custom-option').forEach(o => o.classList.remove('selected'));
+    option.classList.add('selected');
+
+    list.style.display = 'none';
+    list.parentElement.classList.remove('dropdown-active');
+}
+
+// Close dropdowns on outside click
+document.addEventListener('click', (e) => {
+    if (!e.target.closest('.custom-select-wrapper')) {
+        document.querySelectorAll('.custom-options-list').forEach(l => l.style.display = 'none');
+        document.querySelectorAll('.custom-select-wrapper').forEach(w => w.classList.remove('dropdown-active'));
+    }
+});
+
 // Admin Logic
 async function loadCategories() {
     const response = await fetch('/api/categories');
     const categories = await response.json();
     
-    // For Admin Custom Selector (Upload Form)
-    const uploadSelector = document.getElementById('upload-category-selector');
-    if (uploadSelector) {
-        uploadSelector.innerHTML = categories.map(c => `
-            <div class="category-chip" data-id="${c._id}" onclick="selectChip(this, 'video-category')">${c.name}</div>
+    // Render Admin Upload Dropdown Options
+    const uploadList = document.getElementById('upload-category-list');
+    if (uploadList) {
+        uploadList.innerHTML = categories.map(c => `
+            <div class="custom-option" data-id="${c._id}" onclick="selectOption(this, 'video-category', 'upload-category-box', 'upload-selected-text')">${c.name}</div>
         `).join('');
     }
 
@@ -475,7 +521,7 @@ async function loadCategories() {
                 ${catVideos.slice(0, 5).map(v => `
                     <div class="cat-thumb-card" onclick="openVideo('${v._id}')">
                         <div class="cat-thumb-img">
-                            <img src="/api/stream/${v.thumbnail_id}">
+                            <img src="/api/stream/${v.thumbnail_id}?is_image=true">
                         </div>
                         <div class="cat-video-title">${v.title}</div>
                     </div>
@@ -588,8 +634,9 @@ document.getElementById('upload-form').onsubmit = async (e) => {
                 progressContainer.style.display = 'none';
                 progressBar.style.width = '0%';
                 form.reset();
-                // Clear custom selector chips
-                document.getElementById('upload-category-selector').querySelectorAll('.category-chip').forEach(c => c.classList.remove('selected'));
+                // Reset custom dropdown UI
+                document.getElementById('upload-selected-text').innerText = 'Select Category';
+                document.getElementById('upload-selected-text').style.color = 'var(--text-secondary)';
                 document.getElementById('video-category').value = '';
                 loadHome();
             }, 3000);
@@ -632,7 +679,7 @@ function renderAdminVideoList(videos) {
         const item = document.createElement('div');
         item.style = "display:flex; align-items:center; background:#222; padding:10px; border-radius:8px; gap:10px;";
         item.innerHTML = `
-            <img src="/api/stream/${v.thumbnail_id}" style="width:60px; height:40px; object-fit:cover; border-radius:4px;">
+            <img src="/api/stream/${v.thumbnail_id}?is_image=true" style="width:60px; height:40px; object-fit:cover; border-radius:4px;">
             <div style="flex:1;">
                 <div style="font-size:14px; font-weight:bold;">${v.title}</div>
                 <div style="font-size:12px; color:#aaa;">${v.type} | ${v.view_count} views</div>
@@ -659,13 +706,6 @@ async function deleteVideo(id) {
     }
 }
 
-function selectChip(chip, hiddenInputId) {
-    const container = chip.parentElement;
-    container.querySelectorAll('.category-chip').forEach(c => c.classList.remove('selected'));
-    chip.classList.add('selected');
-    document.getElementById(hiddenInputId).value = chip.dataset.id;
-}
-
 async function openEditModal(id, title, catId) {
     const modal = document.getElementById('edit-modal');
     modal.style.display = 'block';
@@ -674,12 +714,18 @@ async function openEditModal(id, title, catId) {
     
     const response = await fetch('/api/categories');
     const cats = await response.json();
-    const selector = document.getElementById('edit-category-selector');
+    const list = document.getElementById('edit-category-list');
+    const boxText = document.getElementById('edit-selected-text');
     const hiddenInput = document.getElementById('edit-video-category');
     
+    // Find current category name
+    const currentCat = cats.find(c => c._id === catId);
+    boxText.innerText = currentCat ? currentCat.name : 'Select Category';
+    boxText.style.color = 'white';
     hiddenInput.value = catId;
-    selector.innerHTML = cats.map(c => `
-        <div class="category-chip ${c._id === catId ? 'selected' : ''}" data-id="${c._id}" onclick="selectChip(this, 'edit-video-category')">${c.name}</div>
+
+    list.innerHTML = cats.map(c => `
+        <div class="custom-option ${c._id === catId ? 'selected' : ''}" data-id="${c._id}" onclick="selectOption(this, 'edit-video-category', 'edit-category-box', 'edit-selected-text')">${c.name}</div>
     `).join('');
 }
 
@@ -721,7 +767,7 @@ async function loadSuggestions(currentId) {
         item.className = 'long-card';
         item.innerHTML = `
             <div class="thumbnail-container" style="aspect-ratio: 16/9;">
-                <img src="/api/stream/${s.thumbnail_id}">
+                <img src="/api/stream/${s.thumbnail_id}?is_image=true">
             </div>
             <div style="font-size:12px;">${s.title}</div>
         `;

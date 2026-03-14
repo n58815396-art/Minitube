@@ -12,7 +12,6 @@
         <!-- Top Bar -->
         <header class="top-bar">
             <div class="logo">
-                <svg viewBox="0 0 24 24"><path d="M21.58 7.19c-.23-.86-.91-1.54-1.77-1.77C18.25 5 12 5 12 5s-6.25 0-7.81.42c-.86.23-1.54.91-1.77 1.77C2 8.75 2 12 2 12s0 3.25.42 4.81c.23.86.91 1.54 1.77 1.77C5.75 19 12 19 12 19s6.25 0 7.81-.42c.86-.23 1.54-.91 1.77-1.77.42-1.56.42-4.81.42-4.81s0-3.25-.42-4.81zM10 15V9l5.2 3-5.2 3z"/></svg>
                 <span>Tele</span><span>Tube</span>
             </div>
             <div class="search-container" style="display:none; flex:1; margin-left:10px;">
@@ -85,12 +84,17 @@
                 
                 <div id="admin-upload" class="admin-tab-content">
                     <form id="upload-form">
-                        <input type="text" id="video-title" placeholder="Title" required>
+                        <input type="text" id="video-title" placeholder="Video Title" required style="color: white;">
                         
-                        <!-- Custom Category Selector -->
-                        <div class="custom-select-label">Select Category:</div>
-                        <div id="upload-category-selector" class="custom-selector-container">
-                            <!-- Categories will be rendered as chips here -->
+                        <!-- Professional Custom Dropdown Selector -->
+                        <div class="custom-select-wrapper">
+                            <div id="upload-category-box" class="custom-select-box" onclick="toggleDropdown('upload-category-list')">
+                                <span id="upload-selected-text">Select Category</span>
+                                <svg class="dropdown-arrow" viewBox="0 0 24 24"><path d="M7 10l5 5 5-5z"/></svg>
+                            </div>
+                            <div id="upload-category-list" class="custom-options-list">
+                                <!-- Categories will be rendered here -->
+                            </div>
                         </div>
                         <input type="hidden" id="video-category" required>
 
@@ -134,16 +138,22 @@
                 <h3>Edit Video Info</h3>
                 <form id="edit-form" style="margin-top: 20px;">
                     <input type="hidden" id="edit-video-id">
-                    <label>Title</label>
-                    <input type="text" id="edit-video-title" required>
+                    <label style="color: #aaa; font-size: 13px;">Title</label>
+                    <input type="text" id="edit-video-title" required style="color: white; margin-bottom: 15px;">
                     
-                    <label>Category</label>
-                    <div id="edit-category-selector" class="custom-selector-container">
-                        <!-- Categories chips here -->
+                    <label style="color: #aaa; font-size: 13px;">Category</label>
+                    <div class="custom-select-wrapper">
+                        <div id="edit-category-box" class="custom-select-box" onclick="toggleDropdown('edit-category-list')">
+                            <span id="edit-selected-text">Select Category</span>
+                            <svg class="dropdown-arrow" viewBox="0 0 24 24"><path d="M7 10l5 5 5-5z"/></svg>
+                        </div>
+                        <div id="edit-category-list" class="custom-options-list">
+                            <!-- Categories will be rendered here -->
+                        </div>
                     </div>
                     <input type="hidden" id="edit-video-category" required>
                     
-                    <button type="submit" style="margin-top: 10px;">Save Changes</button>
+                    <button type="submit" style="margin-top: 20px;">Save Changes</button>
                 </form>
             </div>
         </div>
