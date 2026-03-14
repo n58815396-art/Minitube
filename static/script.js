@@ -261,7 +261,7 @@ async function loadShorts() {
         wrapper.className = 'short-video-wrapper';
         wrapper.innerHTML = `
             <video loop playsinline data-id="${s._id}">
-                <source src="/api/stream?file_id=${encodeURIComponent(s.file_id)}" type="video/mp4">
+                <source src="/api/stream/${s._id}" type="video/mp4">
             </video>
             <div style="position:absolute; bottom:20px; left:20px; pointer-events:none;">
                 <h3>${s.title}</h3>
@@ -307,7 +307,7 @@ function openLongPlayer(video) {
     const overlay = document.getElementById('video-overlay');
     const player = document.getElementById('long-video-player');
     overlay.style.display = 'block';
-    player.src = `/api/stream?file_id=${encodeURIComponent(video.file_id)}`;
+    player.src = `/api/stream/${video._id}`;
     document.getElementById('player-title').innerText = video.title;
     document.getElementById('player-views').innerText = `${formatViews(video.view_count)} views`;
     
