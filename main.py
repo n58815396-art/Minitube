@@ -3,6 +3,7 @@ import asyncio
 import hmac
 import hashlib
 import json
+import uuid
 from datetime import datetime
 from typing import Optional, List
 from urllib.parse import parse_qs
@@ -14,6 +15,7 @@ from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
+from bson import ObjectId
 from pyrogram import Client
 from pyrogram.types import Message
 from dotenv import load_dotenv
@@ -50,17 +52,36 @@ async def get_admin(x_telegram_init_data: Optional[str] = Header(None)):
     if not x_telegram_init_data:
         raise HTTPException(status_code=401, detail="Unauthorized")
     
-    # In a real app, verify the signature with BOT_TOKEN. 
-    # For this prototype, we'll parse the data and check user ID.
     try:
-        data = parse_qs(x_telegram_init_data)
-        user = json.loads(data.get("user", ["{}"])[0])
+        # 1. Parse data
+        parsed_data = parse_qs(x_telegram_init_data)
+        data_to_check = {k: v[0] for k, v in parsed_data.items() if k != 'hash'}
+        received_hash = parsed_data.get('hash', [None])[0]
+        
+        # 2. Sort and Join
+        data_list = sorted([f"{k}={v}" for k, v in data_to_check.items()])
+        data_check_string = "\n".join(data_list)
+        
+        # 3. Create Secret Key
+        secret_key = hmac.new(b"WebAppData", BOT_TOKEN.encode(), hashlib.sha256).digest()
+        
+        # 4. Calculate Hash
+        calculated_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
+        
+        # 5. Verify Signature
+        if calculated_hash != received_hash:
+             raise HTTPException(status_code=403, detail="Invalid Signature")
+
+        # 6. Check if Admin
+        user = json.loads(data_to_check.get("user", "{}"))
         user_id = str(user.get("id"))
         if user_id != ADMIN_ID:
-            raise HTTPException(status_code=403, detail="Forbidden")
+            raise HTTPException(status_code=403, detail="Forbidden: Not Admin")
+            
         return user_id
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid Init Data")
+    except Exception as e:
+        print(f"Auth Error: {e}")
+        raise HTTPException(status_code=401, detail="Authentication Failed")
 
 # --- Routes ---
 
@@ -71,6 +92,36 @@ async def get_videos(type: Optional[str] = None, category_id: Optional[str] = No
     if category_id: query["category_id"] = category_id
     
     cursor = db.videos.find(query).sort("created_at", -1)
+    videos = []
+    async for doc in cursor:
+        doc["_id"] = str(doc["_id"])
+        videos.append(doc)
+    return videos
+
+@app.get("/api/videos/trending")
+async def get_trending_videos():
+    # Sort by view_count descending
+    cursor = db.videos.find().sort("view_count", -1).limit(20)
+    videos = []
+    async for doc in cursor:
+        doc["_id"] = str(doc["_id"])
+        videos.append(doc)
+    return videos
+
+@app.get("/api/videos/search")
+async def search_videos(q: str):
+    # Case-insensitive search using regex
+    query = {"title": {"$regex": q, "$options": "i"}}
+    cursor = db.videos.find(query).sort("created_at", -1)
+    videos = []
+    async for doc in cursor:
+        doc["_id"] = str(doc["_id"])
+        videos.append(doc)
+    return videos
+
+@app.get("/api/videos/category/{category_id}")
+async def get_category_videos(category_id: str):
+    cursor = db.videos.find({"category_id": category_id}).sort("created_at", -1)
     videos = []
     async for doc in cursor:
         doc["_id"] = str(doc["_id"])
@@ -89,14 +140,45 @@ async def get_categories():
 @app.get("/api/stream/{file_id}")
 async def stream_video(file_id: str):
     async def generator():
-        async for chunk in tg_client.stream_media(file_id):
+        # Using a larger chunk size for smoother playback
+        # 512 KB chunks instead of default
+        async for chunk in tg_client.stream_media(file_id, limit=0, offset=0, chunk_size=512 * 1024):
             yield chunk
-    return StreamingResponse(generator(), media_type="video/mp4")
+            # Small sleep to allow event loop to breathe during high-load streaming
+            await asyncio.sleep(0)
+    
+    return StreamingResponse(
+        generator(), 
+        media_type="video/mp4",
+        headers={
+            "Accept-Ranges": "bytes",
+            "Cache-Control": "public, max-age=3600"
+        }
+    )
 
 @app.post("/api/views/{video_id}")
 async def increment_view(video_id: str):
-    from bson import ObjectId
     await db.videos.update_one({"_id": ObjectId(video_id)}, {"$inc": {"view_count": 1}})
+    return {"status": "success"}
+
+# --- Admin Management Routes ---
+
+@app.delete("/api/admin/video/{video_id}")
+async def delete_video(video_id: str, admin_id: str = Depends(get_admin)):
+    await db.videos.delete_one({"_id": ObjectId(video_id)})
+    return {"status": "success"}
+
+@app.patch("/api/admin/video/{video_id}")
+async def update_video_info(
+    video_id: str, 
+    title: str = Form(...), 
+    category_id: str = Form(...),
+    admin_id: str = Depends(get_admin)
+):
+    await db.videos.update_one(
+        {"_id": ObjectId(video_id)}, 
+        {"$set": {"title": title, "category_id": category_id}}
+    )
     return {"status": "success"}
 
 # --- Admin Routes ---
@@ -120,8 +202,10 @@ async def upload_video(
 
     print(f"Upload Request: Title={title}, Type={video_type}, Category={category_id}")
     
-    # 1. Save video temporarily to generate thumbnail
-    temp_video = f"temp_{video_file.filename}"
+    # 1. Save video temporarily with a UNIQUE NAME to avoid conflicts
+    file_ext = video_file.filename.split('.')[-1] if '.' in video_file.filename else 'mp4'
+    temp_video = f"temp_{uuid.uuid4().hex}.{file_ext}"
+    
     async with aiofiles.open(temp_video, 'wb') as out_file:
         content = await video_file.read()
         await out_file.write(content)
@@ -176,7 +260,7 @@ if not os.path.exists("static"):
     os.makedirs("static")
     # Create a simple placeholder if it's missing
     with open("static/index.html", "w") as f:
-        f.write("<h1>Minitube Static Folder Missing</h1>")
+        f.write("<h1>TeleTube Static Folder Missing</h1>")
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
