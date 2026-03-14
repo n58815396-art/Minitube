@@ -260,7 +260,7 @@ async function loadShorts() {
         const wrapper = document.createElement('div');
         wrapper.className = 'short-video-wrapper';
         wrapper.innerHTML = `
-            <video loop playsinline data-id="${s._id}">
+            <video loop playsinline muted data-id="${s._id}">
                 <source src="/api/stream/${s._id}" type="video/mp4">
             </video>
             <div style="position:absolute; bottom:20px; left:20px; pointer-events:none;">
