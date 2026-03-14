@@ -139,27 +139,18 @@ async def get_categories():
 
 @app.get("/api/stream")
 async def stream_media(file_id: str, is_image: bool = False):
-    if is_image:
-        # Fix: Simple stream for images to avoid MIME/Header blocks on mobile
-        async def image_generator():
+    # Fix: Use a simple, reliable generator for both images and videos
+    async def media_generator():
+        try:
             async for chunk in tg_client.stream_media(file_id):
                 yield chunk
-        return StreamingResponse(image_generator(), media_type="image/jpeg")
+        except Exception as e:
+            print(f"Stream Error: {e}")
 
-    # Fix: Optimized stream for videos
-    async def video_generator():
-        async for chunk in tg_client.stream_media(file_id, limit=0, offset=0, chunk_size=512 * 1024):
-            yield chunk
-            await asyncio.sleep(0)
+    if is_image:
+        return StreamingResponse(media_generator(), media_type="image/jpeg")
     
-    return StreamingResponse(
-        video_generator(), 
-        media_type="video/mp4",
-        headers={
-            "Accept-Ranges": "bytes",
-            "Cache-Control": "public, max-age=3600"
-        }
-    )
+    return StreamingResponse(media_generator(), media_type="video/mp4")
 
 @app.post("/api/views/{video_id}")
 async def increment_view(video_id: str):
