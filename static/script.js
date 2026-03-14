@@ -315,7 +315,8 @@ function openLongPlayer(video) {
     trackView(video._id, player);
     loadSuggestions(video._id);
     
-    // Fix Point 2: Force play the video
+    // Fix: Force load then play
+    player.load();
     player.play().catch(e => console.error("Auto-play failed:", e));
 }
 
