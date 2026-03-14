@@ -288,16 +288,33 @@ async def stream_video(video_id: str, request: Request):
         except:
             pass
 
+    # FIXED: Pyrogram Chunk Mapping Logic
     start = max(0, start)
     end = min(end, file_size - 1)
-    chunk_size = (end - start) + 1
+    req_length = (end - start) + 1
+
+    # Pyrogram chunks are 1MB (1048576 bytes) each
+    CHUNK_SIZE = 1024 * 1024
+    offset_chunks = start // CHUNK_SIZE
+    skip_bytes = start % CHUNK_SIZE
+    limit_chunks = (end // CHUNK_SIZE) - offset_chunks + 1
 
     async def video_generator():
+        bytes_yielded = 0
         try:
-            # Stream specific byte range from Telegram
-            async for chunk in tg_client.stream_media(file_id, offset=start, limit=chunk_size):
+            async for chunk in tg_client.stream_media(file_id, limit=limit_chunks, offset=offset_chunks):
+                if bytes_yielded == 0 and skip_bytes > 0:
+                    chunk = chunk[skip_bytes:]
+                
+                if bytes_yielded + len(chunk) > req_length:
+                    chunk = chunk[:req_length - bytes_yielded]
+                
                 yield chunk
+                bytes_yielded += len(chunk)
                 await asyncio.sleep(0)
+                
+                if bytes_yielded >= req_length:
+                    break
         except Exception as e:
             print(f"Streaming Error: {e}")
 
@@ -308,7 +325,7 @@ async def stream_video(video_id: str, request: Request):
         headers={
             "Accept-Ranges": "bytes",
             "Content-Range": f"bytes {start}-{end}/{file_size}",
-            "Content-Length": str(chunk_size),
+            "Content-Length": str(req_length),
             "Cache-Control": "public, max-age=3600"
         }
     )
