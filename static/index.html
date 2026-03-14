@@ -63,11 +63,14 @@
         </div>
     </div>
 
-    <nav class="bottom-nav">
+        <nav class="bottom-nav">
         <div class="nav-item active" onclick="loadHome()"><i class="fas fa-home"></i><span>Home</span></div>
         <div class="nav-item" onclick="loadShortsTab()"><i class="fas fa-bolt"></i><span>Shorts</span></div>
         <div class="nav-item" onclick="loadCategoriesTab()"><i class="fas fa-th-large"></i><span>Categories</span></div>
+        
+        <div class="nav-item hidden" id="adminNavBtn" onclick="window.location.href='/admin'"><i class="fas fa-cog"></i><span>Admin</span></div>
     </nav>
+
 
     <script src="script.js"></script>
 </body>
