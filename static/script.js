@@ -1,4 +1,5 @@
 const API_BASE = "http://localhost:7860/api"; // Aapka Railway/Backend URL lagayein
+const MY_ADMIN_ID = 1326069145; // YAHAN APNA ASLI TELEGRAM ID DALEIN
 
 let allVideos = [];
 let shortsVideos = [];
@@ -10,6 +11,25 @@ const bottomNavItems = document.querySelectorAll(".nav-item");
 
 // On Load
 window.addEventListener("DOMContentLoaded", async () => {
+    
+    // --- ADMIN BUTTON LOGIC START ---
+    try {
+        if (window.Telegram && window.Telegram.WebApp) {
+            // Telegram app ko ready karte hain
+            window.Telegram.WebApp.ready(); 
+            
+            const tgUser = window.Telegram.WebApp.initDataUnsafe.user;
+            // Agar kholne wale ka ID aapke ID se match karta hai, toh button dikhao!
+            if (tgUser && tgUser.id == MY_ADMIN_ID) {
+                const adminBtn = document.getElementById("adminNavBtn");
+                if(adminBtn) adminBtn.classList.remove("hidden");
+            }
+        }
+    } catch(e) {
+        console.log("Not running inside Telegram");
+    }
+    // --- ADMIN BUTTON LOGIC END ---
+
     await fetchAllVideos();
     loadHome();
 });
@@ -195,7 +215,7 @@ function openShortsPlayer(startIndex = 0) {
                 // Add view
                 fetch(`${API_BASE}/views/${shortsVideos[index]._id}`, { method: 'POST' });
 
-                // PRELOAD NEXT 2 VIDEOS (Point 2)
+                // PRELOAD NEXT 2 VIDEOS
                 for(let i = 1; i <= 2; i++) {
                     if(index + i < shortsVideos.length) {
                         const nextVid = document.getElementById(`short-vid-${index + i}`);
@@ -228,7 +248,6 @@ function openShortsPlayerByCat(catId, videoId) {
     const catShorts = allVideos.filter(v => v.category_id === catId && v.type === 'short');
     const index = catShorts.findIndex(v => v._id === videoId);
     if(index !== -1) {
-        // Replace temp global shorts logic for category view
         shortsVideos = catShorts; 
         openShortsPlayer(index);
     }
@@ -285,7 +304,7 @@ function closePlayer() {
     if (document.fullscreenElement) { document.exitFullscreen(); }
 }
 
-// Show/Hide Controls on Tap (Point 4)
+// Show/Hide Controls on Tap
 function toggleControls() {
     if (playerControls.classList.contains("hide")) {
         playerControls.classList.remove("hide");
@@ -305,52 +324,45 @@ function resetControlsTimeout() {
     }
 }
 
-// Double Tap to Skip Logic (Point 3 & 4 tap handler)
+// Double Tap to Skip Logic
 playerContainer.addEventListener('click', (e) => {
-    // Ignore clicks on controls bar itself
     if(e.target.closest('.controls-bottom') || e.target.closest('.close-player-btn')) return;
 
     let currentTime = new Date().getTime();
     let tapGap = currentTime - lastTap;
     
     if (tapGap < 300 && tapGap > 0) {
-        // It's a double tap
         clearTimeout(controlsTimeout);
         let rect = playerContainer.getBoundingClientRect();
         let tapX = e.clientX - rect.left;
         
         if (tapX < rect.width / 2) {
-            // Rewind
             video.currentTime -= 10;
             rewindInd.classList.add('show');
             setTimeout(() => rewindInd.classList.remove('show'), 500);
         } else {
-            // Forward
             video.currentTime += 10;
             forwardInd.classList.add('show');
             setTimeout(() => forwardInd.classList.remove('show'), 500);
         }
     } else {
-        // Single tap
         toggleControls();
     }
     lastTap = currentTime;
 });
 
-// Buffering Spinner (Point 3)
+// Buffering Spinner
 video.addEventListener('waiting', () => { loadingSpinner.classList.remove('hidden'); });
 video.addEventListener('playing', () => { loadingSpinner.classList.add('hidden'); });
 video.addEventListener('canplay', () => { loadingSpinner.classList.add('hidden'); });
 
-// Progress and Buffer Bar (Point 4)
+// Progress and Buffer Bar
 video.addEventListener("timeupdate", () => {
     if (!video.duration) return;
     
-    // Play Progress
     const progress = (video.currentTime / video.duration) * 100;
     progressBar.style.width = `${progress}%`;
     
-    // Time Display
     let curMins = Math.floor(video.currentTime / 60);
     let curSecs = Math.floor(video.currentTime % 60).toString().padStart(2, '0');
     let durMins = Math.floor(video.duration / 60);
@@ -360,7 +372,6 @@ video.addEventListener("timeupdate", () => {
 
 video.addEventListener('progress', () => {
     if (video.duration > 0 && video.buffered.length > 0) {
-        // Download Buffer Progress
         const bufferedEnd = video.buffered.end(video.buffered.length - 1);
         const bufferProgress = (bufferedEnd / video.duration) * 100;
         bufferBar.style.width = `${bufferProgress}%`;
@@ -397,20 +408,18 @@ muteBtn.addEventListener("click", () => {
     resetControlsTimeout();
 });
 
-// Auto-Rotate & Fullscreen Logic (Point 8)
+// Auto-Rotate & Fullscreen Logic
 fullscreenBtn.addEventListener("click", async () => {
     try {
         if (!document.fullscreenElement) {
             await playerContainer.requestFullscreen();
             fullscreenBtn.innerHTML = '<i class="fas fa-compress"></i>';
-            // Try to force landscape orientation if supported (Mobile)
             if (screen.orientation && screen.orientation.lock) {
                 await screen.orientation.lock("landscape").catch(e => console.log("Orientation lock not supported"));
             }
         } else {
             await document.exitFullscreen();
             fullscreenBtn.innerHTML = '<i class="fas fa-expand"></i>';
-            // Unlock orientation back to portrait
             if (screen.orientation && screen.orientation.unlock) {
                 screen.orientation.unlock();
             }
