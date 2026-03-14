@@ -8,9 +8,9 @@ let currentShortsSort = 'new'; // Global sort state
 
 // Initialize UI
 document.addEventListener('DOMContentLoaded', () => {
-    initNav();
-    loadHome();
+    initNav(); // Initialize navigation first
     checkAdmin();
+    loadHome();
     loadCategories();
     initSearch();
     initShortsSort();
@@ -49,6 +49,8 @@ function initSearch() {
     const searchContainer = document.querySelector('.search-container');
     const searchInput = document.getElementById('search-input');
     const logo = document.querySelector('.logo');
+
+    if (!searchBtn) return;
 
     searchBtn.onclick = () => {
         if (searchContainer.style.display === 'none') {
@@ -95,8 +97,15 @@ async function performSearch(query) {
 
 // Admin Check
 function checkAdmin() {
-    if (adminId === currentAdminId) {
-        document.getElementById('admin-nav-btn').style.display = 'flex';
+    console.log("Checking Admin... App User ID:", adminId, "Target ID:", currentAdminId);
+    
+    // Ensure both are compared as strings to avoid type issues
+    if (adminId && String(adminId) === String(currentAdminId)) {
+        console.log("Admin Match Found! Displaying Panel.");
+        const adminBtn = document.getElementById('admin-nav-btn');
+        if (adminBtn) adminBtn.style.display = 'flex';
+    } else {
+        console.log("Admin Match Failed.");
     }
 }
 
@@ -106,12 +115,26 @@ function initNav() {
     navItems.forEach(item => {
         item.addEventListener('click', () => {
             const pageId = item.getAttribute('data-page');
+            console.log("Navigating to:", pageId);
 
             document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
             document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
             
-            document.getElementById(pageId).classList.add('active');
-            item.classList.add('active');
+            const targetPage = document.getElementById(pageId);
+            if (targetPage) {
+                targetPage.classList.add('active');
+                item.classList.add('active');
+                
+                // Hide search bar if navigating away
+                const searchContainer = document.querySelector('.search-container');
+                const logo = document.querySelector('.logo');
+                if (searchContainer && logo) {
+                    searchContainer.style.display = 'none';
+                    logo.style.display = 'flex';
+                }
+            } else {
+                console.error("Target page not found:", pageId);
+            }
 
             if (pageId === 'shorts-page') loadShorts();
             if (pageId === 'trending-page') loadTrending();
@@ -500,7 +523,9 @@ function showAdminTab(tab) {
     
     // Update active button state
     document.querySelectorAll('.admin-tabs button').forEach(btn => btn.classList.remove('active-tab'));
-    event.currentTarget.classList.add('active-tab');
+    if (window.event && window.event.currentTarget) {
+        window.event.currentTarget.classList.add('active-tab');
+    }
 }
 
 document.getElementById('category-form').onsubmit = async (e) => {
@@ -543,7 +568,7 @@ document.getElementById('upload-form').onsubmit = async (e) => {
     
     const xhr = new XMLHttpRequest();
     xhr.open('POST', '/api/admin/upload', true);
-    xhr.setRequestHeader('X-Telegram-Init-Data': tg.initData);
+    xhr.setRequestHeader('X-Telegram-Init-Data', tg.initData);
 
     xhr.upload.onprogress = (e) => {
         if (e.lengthComputable) {
