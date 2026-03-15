@@ -588,38 +588,35 @@ async def proxy_pixeldrain(file_id: str, request: Request):
     if range_header:
         headers["Range"] = range_header
     
+    # Use the first available key or no auth
     key = PIXELDRAIN_KEYS[0].strip() if PIXELDRAIN_KEYS and PIXELDRAIN_KEYS[0] else ""
     auth = aiohttp.BasicAuth('', key) if key else None
 
-    try:
-        # Use a single session for the request
-        timeout = aiohttp.ClientTimeout(total=None) # No timeout for streaming
-        session = aiohttp.ClientSession(timeout=timeout)
-        resp = await session.get(url, headers=headers, auth=auth)
-        
-        if resp.status not in [200, 206]:
-            await session.close()
-            raise HTTPException(status_code=resp.status, detail="Pixeldrain error")
+    # We use a persistent session if possible, but for simplicity a new one here
+    async def generate():
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=None)) as session:
+            async with session.get(url, headers=headers, auth=auth) as resp:
+                if resp.status not in [200, 206]:
+                    yield b"" # Fail silently or log
+                    return
 
-        # Filter and forward necessary headers
-        res_headers = {}
-        for h in ["Content-Type", "Content-Length", "Content-Range", "Accept-Ranges", "Content-Disposition"]:
-            if h in resp.headers:
-                res_headers[h] = resp.headers[h]
-        
-        # Helper to ensure session closes after streaming
-        async def stream_gen():
-            try:
-                async for chunk in resp.content.iter_chunked(1024*1024): # 1MB chunks
+                async for chunk in resp.content.iter_chunked(1024*1024):
                     yield chunk
-            finally:
-                await resp.release()
-                await session.close()
 
-        return StreamingResponse(stream_gen(), status_code=resp.status, headers=res_headers)
-    except Exception as e:
-        print(f"Proxy Error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    # Initial head request to get headers correctly without downloading whole file
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, headers=headers, auth=auth) as resp:
+            res_headers = {
+                "Accept-Ranges": "bytes",
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "GET, OPTIONS",
+                "Access-Control-Allow-Headers": "*",
+                "Content-Type": resp.headers.get("Content-Type", "video/mp4"),
+            }
+            if "Content-Length" in resp.headers: res_headers["Content-Length"] = resp.headers["Content-Length"]
+            if "Content-Range" in resp.headers: res_headers["Content-Range"] = resp.headers["Content-Range"]
+            
+            return StreamingResponse(generate(), status_code=resp.status, headers=res_headers)
 
 @app.get("/api/pd/{file_id}/thumbnail")
 async def proxy_pixeldrain_thumb(file_id: str):
