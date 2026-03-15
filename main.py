@@ -365,7 +365,11 @@ async def get_videos(type: Optional[str] = None, category_id: Optional[str] = No
     if category_id: query["category_id"] = category_id
     cursor = db.videos.find(query).sort("created_at", -1)
     videos = []
-    async for doc in cursor: doc["_id"] = str(doc["_id"]); videos.append(doc)
+    async for doc in cursor: 
+        doc["_id"] = str(doc["_id"])
+        # Ensure pixeldrain_id is exposed for direct CF streaming
+        doc["pixeldrain_id"] = doc.get("pixeldrain_id")
+        videos.append(doc)
     return videos
 
 @app.get("/api/videos/search")
@@ -373,7 +377,10 @@ async def search_videos(q: str):
     query = {"title": {"$regex": q, "$options": "i"}}
     cursor = db.videos.find(query).sort("created_at", -1)
     videos = []
-    async for doc in cursor: doc["_id"] = str(doc["_id"]); videos.append(doc)
+    async for doc in cursor: 
+        doc["_id"] = str(doc["_id"])
+        doc["pixeldrain_id"] = doc.get("pixeldrain_id")
+        videos.append(doc)
     return videos
 
 @app.get("/api/categories")
@@ -410,6 +417,8 @@ async def get_recommended_videos(user_id: str = Depends(get_user_id), current_vi
     all_v = []
     async for v in all_videos_cursor:
         v["_id"] = str(v["_id"])
+        # Ensure pixeldrain_id is exposed
+        v["pixeldrain_id"] = v.get("pixeldrain_id")
         if v["_id"] == current_video_id: continue
         all_v.append(v)
 
