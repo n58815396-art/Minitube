@@ -25,6 +25,20 @@
 
     <div id="shorts-fullscreen-container" class="hidden">
         <button class="close-shorts-btn" onclick="closeShorts()"><i class="fas fa-arrow-left"></i></button>
+        <button class="shorts-options-btn" onclick="toggleShortsMenu()"><i class="fas fa-ellipsis-v"></i></button>
+        
+        <div id="shorts-sort-menu" class="shorts-menu hidden">
+            <div class="menu-item" onclick="setShortsSort('new')">
+                <i class="fas fa-circle" id="dot-new"></i> New to Old
+            </div>
+            <div class="menu-item" onclick="setShortsSort('old')">
+                <i class="fas fa-circle" id="dot-old"></i> Old to new
+            </div>
+            <div class="menu-item" onclick="setShortsSort('random')">
+                <i class="fas fa-circle" id="dot-random"></i> Random play
+            </div>
+        </div>
+
         <div id="shorts-wrapper"></div>
     </div>
 

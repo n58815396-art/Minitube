@@ -4,6 +4,7 @@ const MY_ADMIN_ID = 1326069145; // Aapka Admin ID
 let allVideos = [];
 let shortsVideos = [];
 let longVideos = [];
+let shortsSortOrder = 'random'; // Default to Random
 
 // DOM Elements
 const mainContent = document.getElementById("main-content");
@@ -16,6 +17,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     try {
         if (window.Telegram && window.Telegram.WebApp) {
             window.Telegram.WebApp.ready(); 
+            window.Telegram.WebApp.expand(); // Ensure it fills the screen
             const tgUser = window.Telegram.WebApp.initDataUnsafe.user;
             if (tgUser && tgUser.id == MY_ADMIN_ID) {
                 const adminBtn = document.getElementById("adminNavBtn");
@@ -26,7 +28,29 @@ window.addEventListener("DOMContentLoaded", async () => {
         console.log("Not running inside Telegram");
     }
 
+    // Enter Key Search Support
+    const searchInput = document.getElementById("searchInput");
+    if(searchInput) {
+        searchInput.addEventListener("keypress", (e) => {
+            if (e.key === "Enter") searchVideos();
+        });
+    }
+
+    // Keyboard Support for Long Player
+    window.addEventListener("keydown", (e) => {
+        if (!videoOverlay.classList.contains("hidden")) {
+            if (e.code === "Space") {
+                e.preventDefault();
+                togglePlayPause();
+            }
+            if (e.code === "ArrowRight") video.currentTime += 10;
+            if (e.code === "ArrowLeft") video.currentTime -= 10;
+            if (e.code === "Escape") closePlayer();
+        }
+    });
+
     await fetchAllVideos();
+    applyShortsSort('random'); // Initial shuffle
     loadHome();
 });
 
@@ -35,6 +59,7 @@ async function fetchAllVideos() {
     try {
         const res = await fetch(`${API_BASE}/videos`);
         allVideos = await res.json();
+        // Base shorts from allVideos
         shortsVideos = allVideos.filter(v => v.type === "short");
         longVideos = allVideos.filter(v => v.type === "long");
     } catch (e) {
@@ -42,9 +67,110 @@ async function fetchAllVideos() {
     }
 }
 
+function shuffleArray(array) {
+    for (let i = array.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [array[i], array[j]] = [array[j], array[i]];
+    }
+    return array;
+}
+
+function applyShortsSort(order) {
+    shortsSortOrder = order;
+    
+    // Refresh base shorts from allVideos
+    let baseShorts = [...allVideos.filter(v => v.type === "short")];
+    
+    if (order === 'new') {
+        shortsVideos = baseShorts.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    } else if (order === 'old') {
+        shortsVideos = baseShorts.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+    } else {
+        shortsVideos = shuffleArray(baseShorts);
+    }
+
+    // Update Dots UI
+    document.querySelectorAll('.shorts-menu i').forEach(i => i.classList.remove('active'));
+    const dot = document.getElementById(`dot-${order}`);
+    if(dot) dot.classList.add('active');
+}
+
+function toggleShortsMenu() {
+    document.getElementById('shorts-sort-menu').classList.toggle('hidden');
+}
+
+function setShortsSort(order) {
+    applyShortsSort(order);
+    toggleShortsMenu();
+    
+    if (!shortsContainer.classList.contains("hidden")) {
+        openShortsPlayer(0);
+    }
+}
+
+async function searchVideos() {
+    const query = document.getElementById("searchInput").value.trim();
+    if (!query) {
+        loadHome();
+        return;
+    }
+
+    setActiveNav(-1); // Deactivate all nav items
+    mainContent.innerHTML = `
+        <div class="section-loader">
+            <i class="fas fa-circle-notch fa-spin"></i>
+            <span>Searching...</span>
+        </div>
+    `;
+
+    try {
+        const res = await fetch(`${API_BASE}/videos/search?q=${encodeURIComponent(query)}`);
+        const searchResults = await res.json();
+        
+        mainContent.innerHTML = `<h2 class="section-header">Results for "${query}"</h2>`;
+        
+        if (searchResults.length === 0) {
+            mainContent.innerHTML += `
+                <div class="empty-state">
+                    <i class="fas fa-search"></i>
+                    <p>No videos found</p>
+                    <span>Try searching for something else</span>
+                </div>
+            `;
+            return;
+        }
+
+        searchResults.forEach(video => {
+            mainContent.innerHTML += `
+                <div class="long-video-card" onclick="${video.type === 'long' ? `openLongPlayer('${video._id}')` : `openShortsPlayerFromGlobal('${video._id}')`}">
+                    <div class="thumbnail-container">
+                        <img src="https://pixeldrain.com/api/file/${video.pixeldrain_id}/thumbnail" onerror="this.src='https://via.placeholder.com/640x360'">
+                    </div>
+                    <div class="video-info">
+                        <h3>${video.title}</h3>
+                        <p>${video.view_count || 0} views • ${video.type === 'short' ? 'Short' : 'Video'}</p>
+                    </div>
+                </div>
+            `;
+        });
+    } catch (e) {
+        mainContent.innerHTML = "<div style='text-align:center; padding:20px;'>Search failed.</div>";
+    }
+}
+
+function openShortsPlayerFromGlobal(videoId) {
+    const index = shortsVideos.findIndex(v => v._id === videoId);
+    if(index !== -1) {
+        openShortsPlayer(index);
+    } else {
+        // Fallback if not in current global shorts list
+        openLongPlayer(videoId);
+    }
+}
+
 function setActiveNav(index) {
     bottomNavItems.forEach(item => item.classList.remove("active"));
-    bottomNavItems[index].classList.add("active");
+    if(index >= 0) bottomNavItems[index].classList.add("active");
 }
 
 /* =======================================
@@ -104,7 +230,12 @@ function loadHome() {
 ======================================= */
 async function loadCategoriesTab() {
     setActiveNav(2);
-    mainContent.innerHTML = "<div style='text-align:center; padding:20px;'>Loading...</div>";
+    mainContent.innerHTML = `
+        <div class="section-loader">
+            <i class="fas fa-circle-notch fa-spin"></i>
+            <span>Loading Categories...</span>
+        </div>
+    `;
     
     try {
         const catRes = await fetch(`${API_BASE}/categories`);
@@ -145,13 +276,13 @@ async function loadCategoriesTab() {
 function viewAllCategory(catId, catName) {
     const catVideos = allVideos.filter(v => v.category_id === catId);
     mainContent.innerHTML = `
-        <h2 style="padding:15px; border-bottom:1px solid #333;"><i class="fas fa-arrow-left" onclick="loadCategoriesTab()" style="margin-right:10px; cursor:pointer;"></i> ${catName}</h2>
+        <h2 class="section-header"><i class="fas fa-arrow-left" onclick="loadCategoriesTab()"></i> ${catName}</h2>
     `;
     catVideos.forEach(video => {
         mainContent.innerHTML += `
             <div class="long-video-card" onclick="${video.type === 'long' ? `openLongPlayer('${video._id}')` : `openShortsPlayerByCat('${catId}', '${video._id}')`}">
                 <div class="thumbnail-container">
-                    <img src="https://pixeldrain.com/api/file/${video.pixeldrain_id}/thumbnail">
+                    <img src="https://pixeldrain.com/api/file/${video.pixeldrain_id}/thumbnail" onerror="this.src='https://via.placeholder.com/640x360'">
                 </div>
                 <div class="video-info">
                     <h3>${video.title}</h3>
@@ -187,6 +318,22 @@ function openShortsPlayer(startIndex = 0) {
                 </div>
             </div>
         `;
+    });
+
+    // Handle Taps on Shorts (Double tap for Play/Pause)
+    document.querySelectorAll('.short-player-item').forEach(item => {
+        let lastShortTap = 0;
+        item.addEventListener('click', (e) => {
+            let now = new Date().getTime();
+            let delta = now - lastShortTap;
+            if (delta < 300 && delta > 0) {
+                // Double tap detected
+                const vid = item.querySelector('video');
+                if (vid.paused) vid.play();
+                else vid.pause();
+            }
+            lastShortTap = now;
+        });
     });
 
     const options = { root: shortsWrapper, threshold: 0.7 };
@@ -273,7 +420,16 @@ function openLongPlayer(videoId) {
     document.getElementById("playerVideoTitle").innerText = vData.title;
     document.getElementById("playerVideoViews").innerText = (vData.view_count || 0) + " views";
     
+    // Reset Player UI for a fresh look
+    video.pause();
+    video.currentTime = 0;
+    progressBar.style.width = "0%";
+    bufferBar.style.width = "0%";
+    timeDisplay.innerText = "0:00 / 0:00";
+    loadingSpinner.classList.remove('hidden');
+
     video.src = `${API_BASE}/stream/${videoId}`;
+    video.load(); // Explicitly reload the video element
     video.play();
     playPauseBtn.innerHTML = '<i class="fas fa-pause"></i>';
     
@@ -307,6 +463,19 @@ function resetControlsTimeout() {
     }
 }
 
+function togglePlayPause() {
+    if (video.paused) {
+        video.play();
+        playPauseBtn.innerHTML = '<i class="fas fa-pause"></i>';
+        resetControlsTimeout();
+    } else {
+        video.pause();
+        playPauseBtn.innerHTML = '<i class="fas fa-play"></i>';
+        clearTimeout(controlsTimeout);
+        playerControls.classList.remove("hide");
+    }
+}
+
 playerContainer.addEventListener('click', (e) => {
     if(e.target.closest('.controls-bottom') || e.target.closest('.close-player-btn')) return;
 
@@ -328,9 +497,15 @@ playerContainer.addEventListener('click', (e) => {
             setTimeout(() => forwardInd.classList.remove('show'), 500);
         }
     } else {
-        toggleControls();
+        togglePlayPause(); // Single tap now toggles Play/Pause
     }
     lastTap = currentTime;
+});
+
+video.addEventListener('ended', () => {
+    playPauseBtn.innerHTML = '<i class="fas fa-play"></i>';
+    playerControls.classList.remove("hide");
+    clearTimeout(controlsTimeout);
 });
 
 video.addEventListener('waiting', () => { loadingSpinner.classList.remove('hidden'); });
@@ -366,18 +541,7 @@ progressContainer.addEventListener("click", (e) => {
     resetControlsTimeout();
 });
 
-playPauseBtn.addEventListener("click", () => {
-    if (video.paused) {
-        video.play();
-        playPauseBtn.innerHTML = '<i class="fas fa-pause"></i>';
-        resetControlsTimeout();
-    } else {
-        video.pause();
-        playPauseBtn.innerHTML = '<i class="fas fa-play"></i>';
-        clearTimeout(controlsTimeout);
-        playerControls.classList.remove("hide");
-    }
-});
+playPauseBtn.addEventListener("click", togglePlayPause);
 
 muteBtn.addEventListener("click", () => {
     video.muted = !video.muted;
@@ -387,20 +551,53 @@ muteBtn.addEventListener("click", () => {
 
 fullscreenBtn.addEventListener("click", async () => {
     try {
-        if (!document.fullscreenElement) {
-            await playerContainer.requestFullscreen();
-            fullscreenBtn.innerHTML = '<i class="fas fa-compress"></i>';
-            if (screen.orientation && screen.orientation.lock) {
-                await screen.orientation.lock("landscape").catch(e => console.log("Orientation lock not supported"));
+        const isFS = document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement;
+        
+        if (!isFS) {
+            // ENTER FULLSCREEN
+            const enterFS = playerContainer.requestFullscreen || playerContainer.webkitRequestFullscreen || playerContainer.mozRequestFullScreen || playerContainer.msRequestFullscreen;
+            
+            if (enterFS) {
+                await enterFS.call(playerContainer);
+                fullscreenBtn.innerHTML = '<i class="fas fa-compress"></i>';
+                
+                // Rotation Logic
+                if (screen.orientation && screen.orientation.lock) {
+                    await screen.orientation.lock("landscape").catch(e => console.log("Orientation lock blocked"));
+                }
+            } else if (video.webkitEnterFullscreen) {
+                // Fallback for iOS/Telegram Webview specialized for video
+                video.webkitEnterFullscreen();
             }
         } else {
-            await document.exitFullscreen();
+            // EXIT FULLSCREEN
+            const exitFS = document.exitFullscreen || document.webkitExitFullscreen || document.mozCancelFullScreen || document.msExitFullscreen;
+            if (exitFS) {
+                await exitFS.call(document);
+                fullscreenBtn.innerHTML = '<i class="fas fa-expand"></i>';
+                if (screen.orientation && screen.orientation.unlock) {
+                    screen.orientation.unlock();
+                }
+            }
+        }
+    } catch (e) {
+        console.error("Fullscreen/Rotate Error:", e);
+    }
+});
+
+// Sync UI when fullscreen changes via system gestures
+const fsEvents = ['fullscreenchange', 'webkitfullscreenchange', 'mozfullscreenchange', 'MSFullscreenChange'];
+fsEvents.forEach(evt => {
+    document.addEventListener(evt, () => {
+        const isFS = document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement;
+        if (!isFS) {
             fullscreenBtn.innerHTML = '<i class="fas fa-expand"></i>';
             if (screen.orientation && screen.orientation.unlock) {
                 screen.orientation.unlock();
             }
+        } else {
+            fullscreenBtn.innerHTML = '<i class="fas fa-compress"></i>';
         }
-    } catch (e) {
-        console.log("Fullscreen Error:", e);
-    }
+    });
 });
+
