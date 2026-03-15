@@ -127,12 +127,6 @@ function setActiveNav(index) {
 ======================================= */
 function renderFeed(vList, emptyMsg = "No videos found") {
     mainContent.innerHTML = "";
-    let sVideos = vList.filter(v => v.type === "short");
-    let lVideos = vList.filter(v => v.type === "long");
-    
-    let sIndex = 0;
-    let lIndex = 0;
-
     if (vList.length === 0) {
         mainContent.innerHTML = `
             <div class="empty-state">
@@ -143,41 +137,42 @@ function renderFeed(vList, emptyMsg = "No videos found") {
         return;
     }
 
-    while(sIndex < sVideos.length || lIndex < lVideos.length) {
-        if (sIndex < sVideos.length) {
-            let chunk = sVideos.slice(sIndex, sIndex + 4);
-            let shortsHTML = `
+    for (let i = 0; i < vList.length; i++) {
+        let v = vList[i];
+        
+        if (v.type === "long") {
+            mainContent.innerHTML += `
+                <div class="long-video-card" onclick="openLongPlayer('${v._id}')">
+                    <div class="thumbnail-container">
+                        <img src="https://pixeldrain.com/api/file/${v.pixeldrain_id}/thumbnail" onerror="this.src='https://via.placeholder.com/640x360'">
+                    </div>
+                    <div class="video-info">
+                        <h3>${v.title}</h3>
+                        <p>${v.view_count || 0} views</p>
+                    </div>
+                </div>
+            `;
+        } else {
+            // Consecutive Shorts Grouping (up to 4)
+            let shortsGroup = [v];
+            while (i + 1 < vList.length && vList[i+1].type === "short" && shortsGroup.length < 4) {
+                i++;
+                shortsGroup.push(vList[i]);
+            }
+            
+            mainContent.innerHTML += `
                 <div class="shorts-shelf">
                     <div class="shorts-shelf-title"><i class="fas fa-sync-alt"></i> Scrolls</div>
                     <div class="shorts-grid">
-                        ${chunk.map((video) => `
-                            <div class="short-card-home" onclick="openShortsPlayer('${video._id}')">
-                                <img src="https://pixeldrain.com/api/file/${video.pixeldrain_id}/thumbnail" onerror="this.src='https://via.placeholder.com/200x350?text=Short'">
-                                <div class="title">${video.title}</div>
+                        ${shortsGroup.map((short) => `
+                            <div class="short-card-home" onclick="openShortsPlayer('${short._id}')">
+                                <img src="https://pixeldrain.com/api/file/${short.pixeldrain_id}/thumbnail" onerror="this.src='https://via.placeholder.com/200x350?text=Short'">
+                                <div class="title">${short.title}</div>
                             </div>
                         `).join('')}
                     </div>
                 </div>
             `;
-            mainContent.innerHTML += shortsHTML;
-            sIndex += 4;
-        }
-
-        if (lIndex < lVideos.length) {
-            let chunk = lVideos.slice(lIndex, lIndex + 5);
-            let longsHTML = chunk.map(video => `
-                <div class="long-video-card" onclick="openLongPlayer('${video._id}')">
-                    <div class="thumbnail-container">
-                        <img src="https://pixeldrain.com/api/file/${video.pixeldrain_id}/thumbnail" onerror="this.src='https://via.placeholder.com/640x360'">
-                    </div>
-                    <div class="video-info">
-                        <h3>${video.title}</h3>
-                        <p>${video.view_count || 0} views</p>
-                    </div>
-                </div>
-            `).join('');
-            mainContent.innerHTML += longsHTML;
-            lIndex += 5;
         }
     }
 }
@@ -570,6 +565,14 @@ muteBtn.addEventListener("click", () => {
 
 fullscreenBtn.addEventListener("click", async () => {
     try {
+        const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+        
+        // SOLUTION B: If on mobile/Telegram, use the Native System Player
+        if (isMobile && video.webkitEnterFullscreen) {
+            video.webkitEnterFullscreen();
+            return;
+        }
+
         const isFS = document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement;
         if (!isFS) {
             const enterFS = playerContainer.requestFullscreen || playerContainer.webkitRequestFullscreen || playerContainer.mozRequestFullScreen || playerContainer.msRequestFullscreen;
