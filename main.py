@@ -33,6 +33,13 @@ PIXELDRAIN_KEYS = os.getenv("PIXELDRAIN_API_KEY", "").split(",")
 CF_WORKER_URL = "https://minitube-stream.f0471649.workers.dev"
 current_key_idx = 0
 
+app = FastAPI()
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+mongo_client = AsyncIOMotorClient(MONGO_URI)
+db = mongo_client["mini_clips"]
+tg_client = Client("mini_clips_session", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+
 async def upload_to_pixeldrain(file_path: str):
     global current_key_idx
     if not PIXELDRAIN_KEYS or not PIXELDRAIN_KEYS[0]: return None
