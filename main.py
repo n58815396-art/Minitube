@@ -450,7 +450,8 @@ async def upload_video(
     try:
         video_msg: Message = await tg_client.send_video(chat_id=int(CHAT_ID), video=temp_video, thumb=thumb_path if success else None, caption=f"Backup: {title}")
     except Exception as e:
-        os.remove(temp_video); if os.path.exists(thumb_path): os.remove(thumb_path)
+        if os.path.exists(temp_video): os.remove(temp_video)
+        if os.path.exists(thumb_path): os.remove(thumb_path)
         raise HTTPException(status_code=500, detail=f"Telegram error: {str(e)}")
     file_id = video_msg.video.file_id
     thumbnail_id = video_msg.video.thumbs[0].file_id if video_msg.video.thumbs else None
@@ -458,7 +459,9 @@ async def upload_video(
     video_doc = {"title": title, "type": video_type, "category_id": category_id, "tags": final_tags, "file_id": file_id, "pixeldrain_id": pixeldrain_id, "thumbnail_id": thumbnail_id, "message_id": video_msg.id, "view_count": 0, "last_active": datetime.utcnow(), "created_at": datetime.utcnow()}
     await db.videos.insert_one(video_doc)
     for tag in final_tags: await db.tags.update_one({"name": tag}, {"$inc": {"count": 1}}, upsert=True)
-    os.remove(temp_video); if os.path.exists(thumb_path): os.remove(thumb_path)
+    
+    if os.path.exists(temp_video): os.remove(temp_video)
+    if os.path.exists(thumb_path): os.remove(thumb_path)
     return {"status": "success"}
 
 @app.get("/api/stream/{video_id}")
