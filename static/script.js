@@ -435,7 +435,8 @@ async function loadRelatedVideos(currentVideoId) {
 
     try {
         const initData = window.Telegram?.WebApp?.initData || "";
-        const res = await fetch(`${API_BASE}/videos/recommended?current_video_id=${currentVideoId}`, {
+        // Fetch only LONG videos for recommendations
+        const res = await fetch(`${API_BASE}/videos/recommended?current_video_id=${currentVideoId}&type=long`, {
             headers: { 'x-telegram-init-data': initData }
         });
         const related = await res.json();
