@@ -15,6 +15,7 @@ from fastapi import FastAPI, HTTPException, Request, Depends, UploadFile, File, 
 from fastapi.responses import StreamingResponse, FileResponse, RedirectResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from motor.motor_asyncio import AsyncIOMotorClient
 from bson import ObjectId
 from pyrogram import Client
@@ -509,7 +510,35 @@ async def delete_video(video_id: str, admin_id: str = Depends(get_admin)):
 async def create_category(name: str = Form(...), admin_id: str = Depends(get_admin)):
     await db.categories.insert_one({"name": name})
     return {"status": "success"}
+# Termux se aane wale data ka structure
+class HLSUploadRequest(BaseModel):
+    title: str
+    admin_id: str
+    chunks: list # Isme {chunk_name, file_id} aayenge
 
+@app.post("/api/admin/hls_upload")
+async def receive_hls_upload(data: HLSUploadRequest):
+    # 1. Admin verification (Security)
+    if data.admin_id != ADMIN_ID:
+        raise HTTPException(status_code=403, detail="Bhai, tu admin nahi hai!")
+
+    # 2. Database format taiyar karna
+    video_doc = {
+        "title": data.title,
+        "type": "long", # HLS hamesha long video hogi
+        "is_hls": True,
+        "category_id": "", # Baad me admin panel se edit kar sakte hain
+        "tags": [],
+        "chunks": data.chunks,
+        "view_count": 0,
+        "last_active": datetime.utcnow(),
+        "created_at": datetime.utcnow()
+    }
+
+    # 3. Data ko specifically "mini_clips" database ke "videos" collection me save karna
+    await db.videos.insert_one(video_doc)
+    
+    return {"status": "success", "message": "HLS Video database me save ho gayi!"}
 @app.post("/api/admin/upload")
 async def upload_video(
     request: Request,
