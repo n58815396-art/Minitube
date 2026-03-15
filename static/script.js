@@ -1,5 +1,6 @@
 const API_BASE = "/api"; 
-const CF_WORKER_URL = "https://minitube-stream.f0471649.workers.dev";
+// Naam change kar diya taaki confusion na ho, yeh thumbnails ke liye hai
+const PD_PROXY_URL = "/api/pd"; 
 const MY_ADMIN_ID = 1326069145; // Aapka Admin ID
 
 let allVideos = [];
@@ -104,7 +105,7 @@ async function searchVideos() {
             mainContent.innerHTML += `
                 <div class="long-video-card" onclick="${video.type === 'long' ? `openLongPlayer('${video._id}')` : `openShortsPlayer('${video._id}')`}">
                     <div class="thumbnail-container">
-                        <img src="${CF_WORKER_URL}/${video.pixeldrain_id}/thumbnail" onerror="this.src='https://via.placeholder.com/640x360'">
+                        <img src="${PD_PROXY_URL}/${video.pixeldrain_id}/thumbnail" onerror="this.src='https://via.placeholder.com/640x360'">
                     </div>
                     <div class="video-info">
                         <h3>${video.title}</h3>
@@ -145,7 +146,7 @@ function renderFeed(vList, emptyMsg = "No videos found") {
             mainContent.innerHTML += `
                 <div class="long-video-card" onclick="openLongPlayer('${v._id}')">
                     <div class="thumbnail-container">
-                        <img src="${CF_WORKER_URL}/${v.pixeldrain_id}/thumbnail" onerror="this.src='https://via.placeholder.com/640x360'">
+                        <img src="${PD_PROXY_URL}/${v.pixeldrain_id}/thumbnail" onerror="this.src='https://via.placeholder.com/640x360'">
                     </div>
                     <div class="video-info">
                         <h3>${v.title}</h3>
@@ -167,7 +168,7 @@ function renderFeed(vList, emptyMsg = "No videos found") {
                     <div class="shorts-grid">
                         ${shortsGroup.map((short) => `
                             <div class="short-card-home" onclick="openShortsPlayer('${short._id}')">
-                                <img src="${CF_WORKER_URL}/${short.pixeldrain_id}/thumbnail" onerror="this.src='https://via.placeholder.com/200x350?text=Short'">
+                                <img src="${PD_PROXY_URL}/${short.pixeldrain_id}/thumbnail" onerror="this.src='https://via.placeholder.com/200x350?text=Short'">
                                 <div class="title">${short.title}</div>
                             </div>
                         `).join('')}
@@ -233,7 +234,7 @@ async function loadCategoriesTab() {
                         ${top5.map(v => `
                             <div class="category-video-card" onclick="${v.type === 'long' ? `openLongPlayer('${v._id}')` : `openShortsPlayer('${v._id}')`}">
                                 <div class="thumbnail-container">
-                                    <img src="${CF_WORKER_URL}/${v.pixeldrain_id}/thumbnail" onerror="this.src='https://via.placeholder.com/320x180'">
+                                    <img src="${PD_PROXY_URL}/${v.pixeldrain_id}/thumbnail" onerror="this.src='https://via.placeholder.com/320x180'">
                                 </div>
                                 <div class="video-info">
                                     <h3 style="font-size:12px;">${v.title}</h3>
@@ -258,7 +259,7 @@ function viewAllCategory(catId, catName) {
         mainContent.innerHTML += `
             <div class="long-video-card" onclick="${video.type === 'long' ? `openLongPlayer('${video._id}')` : `openShortsPlayer('${video._id}')`}">
                 <div class="thumbnail-container">
-                    <img src="${CF_WORKER_URL}/${video.pixeldrain_id}/thumbnail" onerror="this.src='https://via.placeholder.com/640x360'">
+                    <img src="${PD_PROXY_URL}/${video.pixeldrain_id}/thumbnail" onerror="this.src='https://via.placeholder.com/640x360'">
                 </div>
                 <div class="video-info">
                     <h3>${video.title}</h3>
@@ -322,7 +323,8 @@ function openShortsPlayer(targetVideoId = null) {
             if (entry.isIntersecting) {
                 if(!vid.src) {
                     const video = shortsVideos[index];
-                    vid.src = video.pixeldrain_id ? `${CF_WORKER_URL}/${video.pixeldrain_id}` : `${API_BASE}/stream/${video._id}`;
+                    // MAGIC FIX: Now it always goes to backend to decide CF vs PD
+                    vid.src = `${API_BASE}/stream/${video._id}`;
                 }
                 vid.play().catch(e => console.log("Auto-play prevented"));
                 
@@ -333,7 +335,8 @@ function openShortsPlayer(targetVideoId = null) {
                         const nextVid = document.getElementById(`short-vid-${index + i}`);
                         if(!nextVid.src) {
                             const nextV = shortsVideos[index + i];
-                            nextVid.src = nextV.pixeldrain_id ? `${CF_WORKER_URL}/${nextV.pixeldrain_id}` : `${API_BASE}/stream/${nextV._id}`;
+                            // MAGIC FIX for preload
+                            nextVid.src = `${API_BASE}/stream/${nextV._id}`;
                             nextVid.preload = "auto";
                         }
                     }
@@ -414,7 +417,8 @@ function openLongPlayer(videoId) {
     timeDisplay.innerText = "0:00 / 0:00";
     loadingSpinner.classList.remove('hidden');
 
-    video.src = vData.pixeldrain_id ? `${CF_WORKER_URL}/${vData.pixeldrain_id}` : `${API_BASE}/stream/${videoId}`;
+    // MAGIC FIX: Always route through backend stream
+    video.src = `${API_BASE}/stream/${videoId}`;
     video.load();
     video.play();
     playPauseBtn.innerHTML = '<i class="fas fa-pause"></i>';
@@ -446,7 +450,7 @@ async function loadRelatedVideos(currentVideoId) {
             container.innerHTML += `
                 <div class="long-video-card" onclick="openLongPlayer('${video._id}')" style="margin-bottom:15px; display:flex; gap:10px;">
                     <div class="thumbnail-container" style="flex:0 0 140px; height:80px; border-radius:8px; overflow:hidden;">
-                        <img src="${CF_WORKER_URL}/${video.pixeldrain_id}/thumbnail" onerror="this.src='https://via.placeholder.com/140x80'">
+                        <img src="${PD_PROXY_URL}/${video.pixeldrain_id}/thumbnail" onerror="this.src='https://via.placeholder.com/140x80'">
                     </div>
                     <div class="video-info" style="padding:0; flex:1;">
                         <h3 style="font-size:13px; -webkit-line-clamp:2; margin-bottom:5px;">${video.title}</h3>
