@@ -458,31 +458,43 @@ async def get_recommended_videos(user_id: str = Depends(get_user_id), current_vi
     final_feed = []
     p_ptr, f_ptr, d_ptr, t_ptr = 0, 0, 0, 0
     
+    # Fill empty buckets with Discovery to ensure pattern is never broken
+    if not personalized: personalized = discovery[:20]
+    if not fresh: fresh = discovery[20:30]
+    if not trending: trending = discovery[30:40]
+
     def pick(bucket, ptr):
         if ptr < len(bucket): return bucket[ptr], ptr + 1
+        # If bucket is exhausted, pick a random one from all_v not in final_feed
+        import random
+        existing_ids = {v["_id"] for v in final_feed}
+        pool = [v for v in all_v if v["_id"] not in existing_ids]
+        if pool: return random.choice(pool), ptr
         return None, ptr
 
-    for _ in range(10): # 10 cycles
+    for _ in range(15): # 15 cycles = 90 videos max
+        # 2 Personalized
         for _ in range(2):
             vid, p_ptr = pick(personalized, p_ptr)
-            if vid: final_feed.append(vid)
+            if vid and vid["_id"] not in {x["_id"] for x in final_feed}: final_feed.append(vid)
+        
+        # 1 Fresh
         vid, f_ptr = pick(fresh, f_ptr)
-        if vid: final_feed.append(vid)
+        if vid and vid["_id"] not in {x["_id"] for x in final_feed}: final_feed.append(vid)
+        
+        # 1 Personalized
         vid, p_ptr = pick(personalized, p_ptr)
-        if vid: final_feed.append(vid)
+        if vid and vid["_id"] not in {x["_id"] for x in final_feed}: final_feed.append(vid)
+        
+        # 1 Discovery
         vid, d_ptr = pick(discovery, d_ptr)
-        if vid: final_feed.append(vid)
+        if vid and vid["_id"] not in {x["_id"] for x in final_feed}: final_feed.append(vid)
+        
+        # 1 Trending
         vid, t_ptr = pick(trending, t_ptr)
-        if vid: final_feed.append(vid)
+        if vid and vid["_id"] not in {x["_id"] for x in final_feed}: final_feed.append(vid)
 
-    if len(final_feed) < 20:
-        existing_ids = {v["_id"] for v in final_feed}
-        for v in all_v:
-            if v["_id"] not in existing_ids:
-                final_feed.append(v)
-                if len(final_feed) >= 40: break
-
-    return final_feed[:50]
+    return final_feed[:60]
 
 @app.post("/api/views/{video_id}")
 async def increment_view(video_id: str, user_id: str = Depends(get_user_id)):
@@ -555,26 +567,42 @@ async def stream_video(video_id: str, request: Request):
     try: video = await db.videos.find_one({"_id": ObjectId(video_id)})
     except: raise HTTPException(status_code=400, detail="Invalid ID")
     if not video: raise HTTPException(status_code=404, detail="Not found")
+    
     pixeldrain_id = video.get("pixeldrain_id")
+    range_header = request.headers.get("Range", "bytes=0-")
+
+    async def telegram_stream_generator(v_doc):
+        # Always try to get a fresh file_id when starting a Telegram stream
+        fresh_file_id = await get_working_file_id(v_doc)
+        if not fresh_file_id: return
+        try:
+            async for chunk in tg_client.stream_media(fresh_file_id):
+                yield chunk
+        except Exception as e:
+            print(f"[Telegram Stream] Error: {e}")
+
     if pixeldrain_id:
         pd_url = f"https://pixeldrain.com/api/file/{pixeldrain_id}"
-        range_header = request.headers.get("Range", "bytes=0-")
         async def pixeldrain_proxy():
             async with aiohttp.ClientSession() as session:
-                async with session.get(pd_url, headers={"Range": range_header}) as resp:
-                    if resp.status in [200, 206]:
-                        async for chunk in resp.content.iter_chunked(1024*1024): yield chunk
-                    else:
-                        file_id = await get_working_file_id(video)
-                        if file_id:
-                            async for chunk in tg_client.stream_media(file_id): yield chunk
+                try:
+                    async with session.get(pd_url, headers={"Range": range_header}, timeout=10) as resp:
+                        if resp.status in [200, 206]:
+                            async for chunk in resp.content.iter_chunked(1024*512): # 512KB for faster starts
+                                yield chunk
+                        else:
+                            print(f"[Fallback] Pixeldrain returned {resp.status}, switching to TG")
+                            async for chunk in telegram_stream_generator(video):
+                                yield chunk
+                except Exception as e:
+                    print(f"[Fallback] Pixeldrain connection error: {e}")
+                    async for chunk in telegram_stream_generator(video):
+                        yield chunk
+
         return StreamingResponse(pixeldrain_proxy(), media_type="video/mp4")
-    file_id = await get_working_file_id(video)
-    if file_id:
-        async def fallback_generator():
-            async for chunk in tg_client.stream_media(file_id): yield chunk
-        return StreamingResponse(fallback_generator(), media_type="video/mp4")
-    raise HTTPException(status_code=404, detail="No stream source")
+    
+    # Direct Telegram Fallback if no Pixeldrain ID exists at all
+    return StreamingResponse(telegram_stream_generator(video), media_type="video/mp4")
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
