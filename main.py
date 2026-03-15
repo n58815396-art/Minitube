@@ -30,7 +30,9 @@ MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
 ADMIN_ID = os.getenv("ADMIN_ID") 
 CHAT_ID = os.getenv("CHAT_ID")   
 PIXELDRAIN_KEYS = os.getenv("PIXELDRAIN_API_KEY", "").split(",")
-CF_WORKER_URL = "https://minitube-stream.f0471649.workers.dev"
+
+# Naya Cloudflare Link (HTTPS ke sath taaki Telegram block na kare)
+CF_WORKER_URL = "https://teletube-streaming.f0471649.workers.dev"
 current_key_idx = 0
 
 app = FastAPI()
@@ -367,7 +369,6 @@ async def get_videos(type: Optional[str] = None, category_id: Optional[str] = No
     videos = []
     async for doc in cursor: 
         doc["_id"] = str(doc["_id"])
-        # Ensure pixeldrain_id is exposed for direct CF streaming
         doc["pixeldrain_id"] = doc.get("pixeldrain_id")
         videos.append(doc)
     return videos
@@ -397,19 +398,9 @@ async def get_all_tags():
     async for doc in cursor: tags.append(doc["name"])
     return tags
 
-@app.get("/api/stream")
-async def stream_media(file_id: str, is_image: bool = False):
-    async def media_generator():
-        try:
-            async for chunk in tg_client.stream_media(file_id): yield chunk
-        except Exception as e: print(f"Stream Error: {e}")
-    if is_image: return StreamingResponse(media_generator(), media_type="image/jpeg")
-    return StreamingResponse(media_generator(), media_type="video/mp4")
-
 # --- Recommendation Logic ---
 @app.get("/api/videos/recommended")
 async def get_recommended_videos(user_id: str = Depends(get_user_id), current_video_id: Optional[str] = None, type: Optional[str] = None):
-    # 1. Fetch all videos (with optional type filter)
     query = {}
     if type: query["type"] = type
     
@@ -417,7 +408,6 @@ async def get_recommended_videos(user_id: str = Depends(get_user_id), current_vi
     all_v = []
     async for v in all_videos_cursor:
         v["_id"] = str(v["_id"])
-        # Ensure pixeldrain_id is exposed
         v["pixeldrain_id"] = v.get("pixeldrain_id")
         if v["_id"] == current_video_id: continue
         all_v.append(v)
@@ -427,86 +417,67 @@ async def get_recommended_videos(user_id: str = Depends(get_user_id), current_vi
         random.shuffle(all_v)
         return all_v[:40]
 
-    # 2. Get User Profile
     profile = await db.user_profiles.find_one({"user_id": user_id}) or {"categories": {}, "tags": {}}
     user_cats = profile.get("categories", {})
     user_tags = profile.get("tags", {})
     
-    # Identify top interests
     top_cats = sorted(user_cats.keys(), key=lambda k: user_cats[k], reverse=True)[:3]
     top_tags = sorted(user_tags.keys(), key=lambda k: user_tags[k], reverse=True)[:5]
 
-    # 3. Create Buckets
-    personalized = []
-    fresh = []
-    discovery = []
-    trending = []
-    
+    personalized, fresh, discovery, trending = [], [], [], []
     now = datetime.utcnow()
     seen_ids = set()
 
-    # Bucket A: Personalized (Matches interests)
     for v in all_v:
         is_p = v.get("category_id") in top_cats or any(t in top_tags for t in v.get("tags", []))
         if is_p:
             personalized.append(v)
             seen_ids.add(v["_id"])
 
-    # Bucket B: Fresh (New uploads, last 7 days, not seen in P)
     for v in all_v:
         if v["_id"] in seen_ids: continue
         if now - v["created_at"] < timedelta(days=7):
             fresh.append(v)
             seen_ids.add(v["_id"])
 
-    # Bucket C: Trending (Popular, not seen in P/F)
     remaining = [v for v in all_v if v["_id"] not in seen_ids]
     remaining.sort(key=lambda x: x.get("view_count", 0), reverse=True)
     trending = remaining[:20]
     for v in trending: seen_ids.add(v["_id"])
 
-    # Bucket D: Discovery (Random mix of rest)
     discovery = [v for v in all_v if v["_id"] not in seen_ids]
     import random
     random.shuffle(discovery)
 
-    # 4. Pattern Mixing (Pattern: 2P, 1F, 1P, 1D, 1T)
     final_feed = []
     p_ptr, f_ptr, d_ptr, t_ptr = 0, 0, 0, 0
     
-    # Fill empty buckets with Discovery to ensure pattern is never broken
     if not personalized: personalized = discovery[:20]
     if not fresh: fresh = discovery[20:30]
     if not trending: trending = discovery[30:40]
 
     def pick(bucket, ptr):
         if ptr < len(bucket): return bucket[ptr], ptr + 1
-        # If bucket is exhausted, pick a random one from all_v not in final_feed
         import random
         existing_ids = {v["_id"] for v in final_feed}
         pool = [v for v in all_v if v["_id"] not in existing_ids]
         if pool: return random.choice(pool), ptr
         return None, ptr
 
-    for _ in range(15): # 15 cycles = 90 videos max
-        # 2 Personalized
+    for _ in range(15): 
         for _ in range(2):
             vid, p_ptr = pick(personalized, p_ptr)
             if vid and vid["_id"] not in {x["_id"] for x in final_feed}: final_feed.append(vid)
         
-        # 1 Fresh
         vid, f_ptr = pick(fresh, f_ptr)
         if vid and vid["_id"] not in {x["_id"] for x in final_feed}: final_feed.append(vid)
         
-        # 1 Personalized
         vid, p_ptr = pick(personalized, p_ptr)
         if vid and vid["_id"] not in {x["_id"] for x in final_feed}: final_feed.append(vid)
         
-        # 1 Discovery
         vid, d_ptr = pick(discovery, d_ptr)
         if vid and vid["_id"] not in {x["_id"] for x in final_feed}: final_feed.append(vid)
         
-        # 1 Trending
         vid, t_ptr = pick(trending, t_ptr)
         if vid and vid["_id"] not in {x["_id"] for x in final_feed}: final_feed.append(vid)
 
@@ -568,10 +539,14 @@ async def upload_video(
         if os.path.exists(temp_video): os.remove(temp_video)
         if os.path.exists(thumb_path): os.remove(thumb_path)
         raise HTTPException(status_code=500, detail=f"Telegram error: {str(e)}")
+    
     file_id = video_msg.video.file_id
+    # Yahan File Size bhi save kar rahe hain taaki chunking asani se ho sake
+    file_size = video_msg.video.file_size 
     thumbnail_id = video_msg.video.thumbs[0].file_id if video_msg.video.thumbs else None
     pixeldrain_id = await upload_to_pixeldrain(temp_video)
-    video_doc = {"title": title, "type": video_type, "category_id": category_id, "tags": final_tags, "file_id": file_id, "pixeldrain_id": pixeldrain_id, "thumbnail_id": thumbnail_id, "message_id": video_msg.id, "view_count": 0, "last_active": datetime.utcnow(), "created_at": datetime.utcnow()}
+    
+    video_doc = {"title": title, "type": video_type, "category_id": category_id, "tags": final_tags, "file_id": file_id, "file_size": file_size, "pixeldrain_id": pixeldrain_id, "thumbnail_id": thumbnail_id, "message_id": video_msg.id, "view_count": 0, "last_active": datetime.utcnow(), "created_at": datetime.utcnow()}
     await db.videos.insert_one(video_doc)
     for tag in final_tags: await db.tags.update_one({"name": tag}, {"$inc": {"count": 1}}, upsert=True)
     if os.path.exists(temp_video): os.remove(temp_video)
@@ -583,39 +558,31 @@ async def proxy_pixeldrain(file_id: str, request: Request):
     range_header = request.headers.get("Range")
     url = f"https://pixeldrain.com/api/file/{file_id}"
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
     }
-    if range_header:
-        headers["Range"] = range_header
-    
-    # Use the first available key or no auth
+    if range_header: headers["Range"] = range_header
     key = PIXELDRAIN_KEYS[0].strip() if PIXELDRAIN_KEYS and PIXELDRAIN_KEYS[0] else ""
     auth = aiohttp.BasicAuth('', key) if key else None
 
-    # We use a persistent session if possible, but for simplicity a new one here
     async def generate():
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=None)) as session:
             async with session.get(url, headers=headers, auth=auth) as resp:
                 if resp.status not in [200, 206]:
-                    yield b"" # Fail silently or log
+                    yield b"" 
                     return
-
                 async for chunk in resp.content.iter_chunked(1024*1024):
                     yield chunk
 
-    # Initial head request to get headers correctly without downloading whole file
     async with aiohttp.ClientSession() as session:
         async with session.get(url, headers=headers, auth=auth) as resp:
             res_headers = {
                 "Accept-Ranges": "bytes",
                 "Access-Control-Allow-Origin": "*",
                 "Access-Control-Allow-Methods": "GET, OPTIONS",
-                "Access-Control-Allow-Headers": "*",
                 "Content-Type": resp.headers.get("Content-Type", "video/mp4"),
             }
             if "Content-Length" in resp.headers: res_headers["Content-Length"] = resp.headers["Content-Length"]
             if "Content-Range" in resp.headers: res_headers["Content-Range"] = resp.headers["Content-Range"]
-            
             return StreamingResponse(generate(), status_code=resp.status, headers=res_headers)
 
 @app.get("/api/pd/{file_id}/thumbnail")
@@ -626,33 +593,90 @@ async def proxy_pixeldrain_thumb(file_id: str):
     
     async with aiohttp.ClientSession() as session:
         async with session.get(url, auth=auth) as resp:
-            if resp.status != 200: return FileResponse("static/placeholder.jpg") # Fallback
+            if resp.status != 200: return FileResponse("static/placeholder.jpg")
             content = await resp.read()
             return StreamingResponse(iter([content]), media_type=resp.headers.get("Content-Type", "image/jpeg"))
 
+# --- 🚀 CLOUDFLARE BAAHUBALI ROUTE W/ CHUNKING FIX ---
 @app.get("/api/stream/{video_id}")
 async def stream_video(video_id: str, request: Request):
     try: video = await db.videos.find_one({"_id": ObjectId(video_id)})
     except: raise HTTPException(status_code=400, detail="Invalid ID")
     if not video: raise HTTPException(status_code=404, detail="Not found")
-    
+
+    fresh_file_id = await get_working_file_id(video)
+
+    # 1. Sabse pehle Cloudflare try karega (<20MB files ke liye Magic)
+    if fresh_file_id:
+        async with aiohttp.ClientSession() as session:
+            url = f"https://api.telegram.org/bot{BOT_TOKEN}/getFile?file_id={fresh_file_id}"
+            async with session.get(url) as resp:
+                result = await resp.json()
+                if result.get("ok"):
+                    file_path = result["result"]["file_path"]
+                    cf_url = f"{CF_WORKER_URL}/{file_path}"
+                    return RedirectResponse(url=cf_url, status_code=302)
+                else:
+                    print(f"CF Skipped (Size > 20MB): {result}")
+
+    # 2. Agar video 20MB se badi hui, automatic fallback (Pixeldrain)
     pixeldrain_id = video.get("pixeldrain_id")
-    
     if pixeldrain_id:
-        # Stream via our local proxy instead of Cloudflare
         return await proxy_pixeldrain(pixeldrain_id, request)
+
+    # 3. Last Option (Pyrogram Stream With Range Requests/Chunking)
+    file_size = video.get("file_size")
     
-    async def telegram_stream_generator(v_doc):
-        fresh_file_id = await get_working_file_id(v_doc)
-        if not fresh_file_id: return
+    # Agar purani video hai jisme file_size save nahi hua, toh telegram se pata karo
+    if not file_size and video.get("message_id"):
         try:
-            async for chunk in tg_client.stream_media(fresh_file_id):
-                yield chunk
-        except Exception as e: print(f"[Telegram Stream] Error: {e}")
+            msg = await tg_client.get_messages(int(CHAT_ID), int(video["message_id"]))
+            if msg and msg.video:
+                file_size = msg.video.file_size
+                await db.videos.update_one({"_id": video["_id"]}, {"$set": {"file_size": file_size}})
+        except Exception as e:
+            print(f"Could not fetch file size: {e}")
 
-    # Direct Telegram Fallback
-    return StreamingResponse(telegram_stream_generator(video), media_type="video/mp4")
+    range_header = request.headers.get("Range")
+    
+    if range_header and file_size:
+        # Browser se pucha gaya hissa nikalna
+        start, end = range_header.replace("bytes=", "").split("-")
+        start = int(start) if start else 0
+        end = int(end) if end else file_size - 1
+        end = min(end, file_size - 1)
+        chunk_size = end - start + 1
+        
+        headers = {
+            "Content-Range": f"bytes {start}-{end}/{file_size}",
+            "Accept-Ranges": "bytes",
+            "Content-Length": str(chunk_size),
+            "Content-Type": "video/mp4",
+        }
+        
+        async def telegram_stream_chunked():
+            try:
+                # Pyrogram limit aur offset use karke exactly chunk stream karega
+                async for chunk in tg_client.stream_media(fresh_file_id, limit=chunk_size, offset=start):
+                    yield chunk
+            except Exception as e:
+                print(f"[Telegram Chunked Stream] Error: {e}")
+                
+        return StreamingResponse(telegram_stream_chunked(), status_code=206, headers=headers)
+        
+    else:
+        # Agar browser poori video ek sath mange (rarely happens now)
+        headers = {"Accept-Ranges": "bytes", "Content-Type": "video/mp4"}
+        if file_size: headers["Content-Length"] = str(file_size)
+            
+        async def telegram_stream_full():
+            try:
+                async for chunk in tg_client.stream_media(fresh_file_id): 
+                    yield chunk
+            except Exception as e: 
+                print(f"[Telegram Full Stream] Error: {e}")
 
+        return StreamingResponse(telegram_stream_full(), headers=headers)
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
