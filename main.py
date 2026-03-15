@@ -29,25 +29,25 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
 ADMIN_ID = os.getenv("ADMIN_ID") 
 CHAT_ID = os.getenv("CHAT_ID")   
-PIXELDRAIN_API_KEY = os.getenv("PIXELDRAIN_API_KEY")
-
-app = FastAPI()
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
-
-mongo_client = AsyncIOMotorClient(MONGO_URI)
-db = mongo_client["mini_clips"]
-tg_client = Client("mini_clips_session", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+PIXELDRAIN_KEYS = os.getenv("PIXELDRAIN_API_KEY", "").split(",")
+CF_WORKER_URL = "https://minitube-stream.f0471649.workers.dev"
+current_key_idx = 0
 
 async def upload_to_pixeldrain(file_path: str):
-    try:
-        data = aiohttp.FormData()
-        data.add_field('file', open(file_path, 'rb'), filename=os.path.basename(file_path))
-        auth = aiohttp.BasicAuth('', PIXELDRAIN_API_KEY) if PIXELDRAIN_API_KEY else None
-        async with aiohttp.ClientSession() as session:
-            async with session.post("https://pixeldrain.com/api/file", data=data, auth=auth) as resp:
-                result = await resp.json()
-                if result.get("success"): return result.get("id")
-    except Exception as e: print(f"Pixeldrain Error: {e}")
+    global current_key_idx
+    if not PIXELDRAIN_KEYS or not PIXELDRAIN_KEYS[0]: return None
+    for _ in range(len(PIXELDRAIN_KEYS)):
+        try:
+            key = PIXELDRAIN_KEYS[current_key_idx].strip()
+            current_key_idx = (current_key_idx + 1) % len(PIXELDRAIN_KEYS)
+            data = aiohttp.FormData()
+            data.add_field('file', open(file_path, 'rb'), filename=os.path.basename(file_path))
+            auth = aiohttp.BasicAuth('', key)
+            async with aiohttp.ClientSession() as session:
+                async with session.post("https://pixeldrain.com/api/file", data=data, auth=auth) as resp:
+                    result = await resp.json()
+                    if result.get("success"): return result.get("id")
+        except Exception as e: print(f"Pixeldrain Upload Error: {e}")
     return None
 
 async def get_working_file_id(video_doc):
@@ -569,39 +569,21 @@ async def stream_video(video_id: str, request: Request):
     if not video: raise HTTPException(status_code=404, detail="Not found")
     
     pixeldrain_id = video.get("pixeldrain_id")
-    range_header = request.headers.get("Range", "bytes=0-")
-
+    
     async def telegram_stream_generator(v_doc):
-        # Always try to get a fresh file_id when starting a Telegram stream
         fresh_file_id = await get_working_file_id(v_doc)
         if not fresh_file_id: return
         try:
             async for chunk in tg_client.stream_media(fresh_file_id):
                 yield chunk
-        except Exception as e:
-            print(f"[Telegram Stream] Error: {e}")
+        except Exception as e: print(f"[Telegram Stream] Error: {e}")
 
     if pixeldrain_id:
-        pd_url = f"https://pixeldrain.com/api/file/{pixeldrain_id}"
-        async def pixeldrain_proxy():
-            async with aiohttp.ClientSession() as session:
-                try:
-                    async with session.get(pd_url, headers={"Range": range_header}, timeout=10) as resp:
-                        if resp.status in [200, 206]:
-                            async for chunk in resp.content.iter_chunked(1024*512): # 512KB for faster starts
-                                yield chunk
-                        else:
-                            print(f"[Fallback] Pixeldrain returned {resp.status}, switching to TG")
-                            async for chunk in telegram_stream_generator(video):
-                                yield chunk
-                except Exception as e:
-                    print(f"[Fallback] Pixeldrain connection error: {e}")
-                    async for chunk in telegram_stream_generator(video):
-                        yield chunk
-
-        return StreamingResponse(pixeldrain_proxy(), media_type="video/mp4")
+        # User ko Cloudflare Worker par Redirect kar do (Superfast Speed)
+        # Worker URL ke peeche File ID attach hogi
+        return RedirectResponse(url=f"{CF_WORKER_URL}/{pixeldrain_id}")
     
-    # Direct Telegram Fallback if no Pixeldrain ID exists at all
+    # Direct Telegram Fallback (Only if Pixeldrain ID is missing)
     return StreamingResponse(telegram_stream_generator(video), media_type="video/mp4")
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
