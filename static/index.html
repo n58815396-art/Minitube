@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Minitube</title>
+    <title>T-Tube</title>
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
@@ -13,7 +13,7 @@
 <body>
 
     <header id="header">
-        <div class="logo">Mini<span>Tube</span></div>
+        <div class="logo">T-<span>Tube</span></div>
         <div class="search-box">
             <input type="text" id="searchInput" placeholder="Search videos...">
             <button onclick="searchVideos()"><i class="fas fa-search"></i></button>
@@ -25,20 +25,6 @@
 
     <div id="shorts-fullscreen-container" class="hidden">
         <button class="close-shorts-btn" onclick="closeShorts()"><i class="fas fa-arrow-left"></i></button>
-        <button class="shorts-options-btn" onclick="toggleShortsMenu()"><i class="fas fa-ellipsis-v"></i></button>
-        
-        <div id="shorts-sort-menu" class="shorts-menu hidden">
-            <div class="menu-item" onclick="setShortsSort('new')">
-                <i class="fas fa-circle" id="dot-new"></i> New to Old
-            </div>
-            <div class="menu-item" onclick="setShortsSort('old')">
-                <i class="fas fa-circle" id="dot-old"></i> Old to new
-            </div>
-            <div class="menu-item" onclick="setShortsSort('random')">
-                <i class="fas fa-circle" id="dot-random"></i> Random play
-            </div>
-        </div>
-
         <div id="shorts-wrapper"></div>
     </div>
 
@@ -78,11 +64,17 @@
             <h2 id="playerVideoTitle">Video Title</h2>
             <p id="playerVideoViews">0 views</p>
         </div>
+
+        <div class="related-section">
+            <h3 class="section-header">Up Next</h3>
+            <div id="related-videos-container"></div>
+        </div>
     </div>
 
         <nav class="bottom-nav">
         <div class="nav-item active" onclick="loadHome()"><i class="fas fa-home"></i><span>Home</span></div>
-        <div class="nav-item" onclick="loadShortsTab()"><i class="fas fa-bolt"></i><span>Shorts</span></div>
+        <div class="nav-item" onclick="loadNewTab()"><i class="fas fa-clock"></i><span>New</span></div>
+        <div class="nav-item" onclick="loadShortsTab()"><i class="fas fa-sync-alt theme-cyan"></i><span>Scrolls</span></div>
         <div class="nav-item" onclick="loadCategoriesTab()"><i class="fas fa-th-large"></i><span>Categories</span></div>
         
         <div class="nav-item hidden" id="adminNavBtn" onclick="window.location.href='/admin'"><i class="fas fa-cog"></i><span>Admin</span></div>

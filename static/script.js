@@ -4,7 +4,6 @@ const MY_ADMIN_ID = 1326069145; // Aapka Admin ID
 let allVideos = [];
 let shortsVideos = [];
 let longVideos = [];
-let shortsSortOrder = 'random'; // Default to Random
 
 // DOM Elements
 const mainContent = document.getElementById("main-content");
@@ -50,61 +49,21 @@ window.addEventListener("DOMContentLoaded", async () => {
     });
 
     await fetchAllVideos();
-    applyShortsSort('random'); // Initial shuffle
     loadHome();
 });
 
 // Fetch Data
 async function fetchAllVideos() {
     try {
-        const res = await fetch(`${API_BASE}/videos`);
+        const initData = window.Telegram?.WebApp?.initData || "";
+        const res = await fetch(`${API_BASE}/videos/recommended`, {
+            headers: { 'x-telegram-init-data': initData }
+        });
         allVideos = await res.json();
-        // Base shorts from allVideos
         shortsVideos = allVideos.filter(v => v.type === "short");
         longVideos = allVideos.filter(v => v.type === "long");
     } catch (e) {
         console.error("Error fetching videos:", e);
-    }
-}
-
-function shuffleArray(array) {
-    for (let i = array.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [array[i], array[j]] = [array[j], array[i]];
-    }
-    return array;
-}
-
-function applyShortsSort(order) {
-    shortsSortOrder = order;
-    
-    // Refresh base shorts from allVideos
-    let baseShorts = [...allVideos.filter(v => v.type === "short")];
-    
-    if (order === 'new') {
-        shortsVideos = baseShorts.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-    } else if (order === 'old') {
-        shortsVideos = baseShorts.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-    } else {
-        shortsVideos = shuffleArray(baseShorts);
-    }
-
-    // Update Dots UI
-    document.querySelectorAll('.shorts-menu i').forEach(i => i.classList.remove('active'));
-    const dot = document.getElementById(`dot-${order}`);
-    if(dot) dot.classList.add('active');
-}
-
-function toggleShortsMenu() {
-    document.getElementById('shorts-sort-menu').classList.toggle('hidden');
-}
-
-function setShortsSort(order) {
-    applyShortsSort(order);
-    toggleShortsMenu();
-    
-    if (!shortsContainer.classList.contains("hidden")) {
-        openShortsPlayer(0);
     }
 }
 
@@ -142,7 +101,7 @@ async function searchVideos() {
 
         searchResults.forEach(video => {
             mainContent.innerHTML += `
-                <div class="long-video-card" onclick="${video.type === 'long' ? `openLongPlayer('${video._id}')` : `openShortsPlayerFromGlobal('${video._id}')`}">
+                <div class="long-video-card" onclick="${video.type === 'long' ? `openLongPlayer('${video._id}')` : `openShortsPlayer('${video._id}')`}">
                     <div class="thumbnail-container">
                         <img src="https://pixeldrain.com/api/file/${video.pixeldrain_id}/thumbnail" onerror="this.src='https://via.placeholder.com/640x360'">
                     </div>
@@ -158,42 +117,41 @@ async function searchVideos() {
     }
 }
 
-function openShortsPlayerFromGlobal(videoId) {
-    const index = shortsVideos.findIndex(v => v._id === videoId);
-    if(index !== -1) {
-        openShortsPlayer(index);
-    } else {
-        // Fallback if not in current global shorts list
-        openLongPlayer(videoId);
-    }
-}
-
 function setActiveNav(index) {
     bottomNavItems.forEach(item => item.classList.remove("active"));
     if(index >= 0) bottomNavItems[index].classList.add("active");
 }
 
 /* =======================================
-   HOME FEED ALGORITHM
+   FEED RENDERING (HOME & NEW)
 ======================================= */
-function loadHome() {
-    setActiveNav(0);
+function renderFeed(vList, emptyMsg = "No videos found") {
     mainContent.innerHTML = "";
+    let sVideos = vList.filter(v => v.type === "short");
+    let lVideos = vList.filter(v => v.type === "long");
     
     let sIndex = 0;
     let lIndex = 0;
 
-    while(sIndex < shortsVideos.length || lIndex < longVideos.length) {
-        
-        // 1. Add 4 Shorts
-        if (sIndex < shortsVideos.length) {
-            let chunk = shortsVideos.slice(sIndex, sIndex + 4);
+    if (vList.length === 0) {
+        mainContent.innerHTML = `
+            <div class="empty-state">
+                <i class="fas fa-clock"></i>
+                <p>${emptyMsg}</p>
+            </div>
+        `;
+        return;
+    }
+
+    while(sIndex < sVideos.length || lIndex < lVideos.length) {
+        if (sIndex < sVideos.length) {
+            let chunk = sVideos.slice(sIndex, sIndex + 4);
             let shortsHTML = `
                 <div class="shorts-shelf">
-                    <div class="shorts-shelf-title"><i class="fas fa-bolt"></i> Shorts</div>
+                    <div class="shorts-shelf-title"><i class="fas fa-sync-alt"></i> Scrolls</div>
                     <div class="shorts-grid">
-                        ${chunk.map((video, idx) => `
-                            <div class="short-card-home" onclick="openShortsPlayer(${sIndex + idx})">
+                        ${chunk.map((video) => `
+                            <div class="short-card-home" onclick="openShortsPlayer('${video._id}')">
                                 <img src="https://pixeldrain.com/api/file/${video.pixeldrain_id}/thumbnail" onerror="this.src='https://via.placeholder.com/200x350?text=Short'">
                                 <div class="title">${video.title}</div>
                             </div>
@@ -205,9 +163,8 @@ function loadHome() {
             sIndex += 4;
         }
 
-        // 2. Add 5 Long Videos
-        if (lIndex < longVideos.length) {
-            let chunk = longVideos.slice(lIndex, lIndex + 5);
+        if (lIndex < lVideos.length) {
+            let chunk = lVideos.slice(lIndex, lIndex + 5);
             let longsHTML = chunk.map(video => `
                 <div class="long-video-card" onclick="openLongPlayer('${video._id}')">
                     <div class="thumbnail-container">
@@ -225,11 +182,34 @@ function loadHome() {
     }
 }
 
+function loadHome() {
+    setActiveNav(0);
+    renderFeed(allVideos);
+}
+
+function loadNewTab() {
+    setActiveNav(1);
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    
+    const newVideos = allVideos.filter(v => {
+        const createdDate = new Date(v.created_at);
+        return createdDate >= sevenDaysAgo;
+    });
+    
+    renderFeed(newVideos, "No new videos in the last 7 days");
+}
+
+function loadShortsTab() {
+    setActiveNav(2);
+    openShortsPlayer(shortsVideos[0]?._id);
+}
+
 /* =======================================
    CATEGORY LAYOUT
 ======================================= */
 async function loadCategoriesTab() {
-    setActiveNav(2);
+    setActiveNav(3);
     mainContent.innerHTML = `
         <div class="section-loader">
             <i class="fas fa-circle-notch fa-spin"></i>
@@ -255,7 +235,7 @@ async function loadCategoriesTab() {
                     </div>
                     <div class="category-horizontal-scroll">
                         ${top5.map(v => `
-                            <div class="category-video-card" onclick="${v.type === 'long' ? `openLongPlayer('${v._id}')` : `openShortsPlayerByCat('${cat._id}', '${v._id}')`}">
+                            <div class="category-video-card" onclick="${v.type === 'long' ? `openLongPlayer('${v._id}')` : `openShortsPlayer('${v._id}')`}">
                                 <div class="thumbnail-container">
                                     <img src="https://pixeldrain.com/api/file/${v.pixeldrain_id}/thumbnail" onerror="this.src='https://via.placeholder.com/320x180'">
                                 </div>
@@ -280,7 +260,7 @@ function viewAllCategory(catId, catName) {
     `;
     catVideos.forEach(video => {
         mainContent.innerHTML += `
-            <div class="long-video-card" onclick="${video.type === 'long' ? `openLongPlayer('${video._id}')` : `openShortsPlayerByCat('${catId}', '${video._id}')`}">
+            <div class="long-video-card" onclick="${video.type === 'long' ? `openLongPlayer('${video._id}')` : `openShortsPlayer('${video._id}')`}">
                 <div class="thumbnail-container">
                     <img src="https://pixeldrain.com/api/file/${video.pixeldrain_id}/thumbnail" onerror="this.src='https://via.placeholder.com/640x360'">
                 </div>
@@ -293,11 +273,6 @@ function viewAllCategory(catId, catName) {
     });
 }
 
-function loadShortsTab() {
-    setActiveNav(1);
-    openShortsPlayer(0);
-}
-
 /* =======================================
    SHORTS PLAYER & PRELOAD
 ======================================= */
@@ -305,14 +280,18 @@ const shortsContainer = document.getElementById("shorts-fullscreen-container");
 const shortsWrapper = document.getElementById("shorts-wrapper");
 let shortsObserver;
 
-function openShortsPlayer(startIndex = 0) {
+function openShortsPlayer(targetVideoId = null) {
     shortsContainer.classList.remove("hidden");
-    shortsWrapper.innerHTML = "";
     
+    // Use the current shortsVideos order (Stable)
+    shortsWrapper.innerHTML = "";
     shortsVideos.forEach((short, index) => {
         shortsWrapper.innerHTML += `
             <div class="short-player-item" data-index="${index}" data-id="${short._id}">
                 <video id="short-vid-${index}" loop playsinline preload="none"></video>
+                <div class="shorts-play-pause-overlay" id="shorts-btn-${index}">
+                    <i class="fas fa-play"></i>
+                </div>
                 <div class="short-info-overlay">
                     <h3>${short.title}</h3>
                 </div>
@@ -320,24 +299,25 @@ function openShortsPlayer(startIndex = 0) {
         `;
     });
 
-    // Handle Taps on Shorts (Double tap for Play/Pause)
     document.querySelectorAll('.short-player-item').forEach(item => {
         let lastShortTap = 0;
+        const index = item.getAttribute('data-index');
+        const overlay = document.getElementById(`shorts-btn-${index}`);
+        const vid = item.querySelector('video');
+
         item.addEventListener('click', (e) => {
             let now = new Date().getTime();
             let delta = now - lastShortTap;
             if (delta < 300 && delta > 0) {
-                // Double tap detected
-                const vid = item.querySelector('video');
-                if (vid.paused) vid.play();
-                else vid.pause();
+                toggleShortPlay(vid, overlay);
             }
             lastShortTap = now;
         });
     });
 
     const options = { root: shortsWrapper, threshold: 0.7 };
-    
+    if(shortsObserver) shortsObserver.disconnect();
+
     shortsObserver = new IntersectionObserver((entries) => {
         entries.forEach(entry => {
             const index = parseInt(entry.target.getAttribute('data-index'));
@@ -361,6 +341,8 @@ function openShortsPlayer(startIndex = 0) {
             } else {
                 vid.pause();
                 vid.currentTime = 0;
+                const overlay = document.getElementById(`shorts-btn-${index}`);
+                if(overlay) overlay.classList.remove('show');
             }
         });
     }, options);
@@ -370,17 +352,22 @@ function openShortsPlayer(startIndex = 0) {
     });
 
     setTimeout(() => {
-        const targetElement = document.querySelector(`.short-player-item[data-index="${startIndex}"]`);
+        let finalIdx = 0;
+        if (targetVideoId) {
+            finalIdx = shortsVideos.findIndex(v => v._id === targetVideoId);
+        }
+        const targetElement = document.querySelector(`.short-player-item[data-index="${finalIdx >= 0 ? finalIdx : 0}"]`);
         if(targetElement) targetElement.scrollIntoView();
     }, 100);
 }
 
-function openShortsPlayerByCat(catId, videoId) {
-    const catShorts = allVideos.filter(v => v.category_id === catId && v.type === 'short');
-    const index = catShorts.findIndex(v => v._id === videoId);
-    if(index !== -1) {
-        shortsVideos = catShorts; 
-        openShortsPlayer(index);
+function toggleShortPlay(vid, overlay) {
+    if (vid.paused) {
+        vid.play();
+        overlay.classList.remove('show');
+    } else {
+        vid.pause();
+        overlay.classList.add('show');
     }
 }
 
@@ -388,7 +375,6 @@ function closeShorts() {
     shortsContainer.classList.add("hidden");
     if(shortsObserver) shortsObserver.disconnect();
     shortsWrapper.innerHTML = "";
-    shortsVideos = allVideos.filter(v => v.type === "short");
 }
 
 /* =======================================
@@ -411,15 +397,15 @@ const forwardInd = document.getElementById("forwardIndicator");
 
 let controlsTimeout;
 let lastTap = 0;
-
 function openLongPlayer(videoId) {
     const vData = allVideos.find(v => v._id === videoId);
     if(!vData) return;
 
     videoOverlay.classList.remove("hidden");
+    videoOverlay.scrollTo(0, 0); // Reset scroll to top
     document.getElementById("playerVideoTitle").innerText = vData.title;
     document.getElementById("playerVideoViews").innerText = (vData.view_count || 0) + " views";
-    
+
     // Reset Player UI for a fresh look
     video.pause();
     video.currentTime = 0;
@@ -429,13 +415,48 @@ function openLongPlayer(videoId) {
     loadingSpinner.classList.remove('hidden');
 
     video.src = `${API_BASE}/stream/${videoId}`;
-    video.load(); // Explicitly reload the video element
+    video.load();
     video.play();
     playPauseBtn.innerHTML = '<i class="fas fa-pause"></i>';
-    
-    fetch(`${API_BASE}/views/${videoId}`, { method: 'POST' });
+
+    const initData = window.Telegram?.WebApp?.initData || "";
+    fetch(`${API_BASE}/views/${videoId}`, { 
+        method: 'POST',
+        headers: { 'x-telegram-init-data': initData }
+    });
+
     resetControlsTimeout();
+    loadRelatedVideos(videoId);
 }
+
+async function loadRelatedVideos(currentVideoId) {
+    const container = document.getElementById("related-videos-container");
+    container.innerHTML = `<div class="section-loader"><i class="fas fa-circle-notch fa-spin"></i></div>`;
+
+    try {
+        const initData = window.Telegram?.WebApp?.initData || "";
+        const res = await fetch(`${API_BASE}/videos/recommended?current_video_id=${currentVideoId}`, {
+            headers: { 'x-telegram-init-data': initData }
+        });
+        const related = await res.json();
+        container.innerHTML = "";
+
+        related.slice(0, 15).forEach(video => {
+            container.innerHTML += `
+                <div class="long-video-card" onclick="openLongPlayer('${video._id}')" style="margin-bottom:15px; display:flex; gap:10px;">
+                    <div class="thumbnail-container" style="flex:0 0 140px; height:80px; border-radius:8px; overflow:hidden;">
+                        <img src="https://pixeldrain.com/api/file/${video.pixeldrain_id}/thumbnail" onerror="this.src='https://via.placeholder.com/140x80'">
+                    </div>
+                    <div class="video-info" style="padding:0; flex:1;">
+                        <h3 style="font-size:13px; -webkit-line-clamp:2; margin-bottom:5px;">${video.title}</h3>
+                        <p style="font-size:11px;">${video.view_count || 0} views</p>
+                    </div>
+                </div>
+            `;
+        });
+    } catch(e) { container.innerHTML = ""; }
+}
+
 
 function closePlayer() {
     videoOverlay.classList.add("hidden");
@@ -497,7 +518,7 @@ playerContainer.addEventListener('click', (e) => {
             setTimeout(() => forwardInd.classList.remove('show'), 500);
         }
     } else {
-        togglePlayPause(); // Single tap now toggles Play/Pause
+        toggleControls();
     }
     lastTap = currentTime;
 });
@@ -514,10 +535,8 @@ video.addEventListener('canplay', () => { loadingSpinner.classList.add('hidden')
 
 video.addEventListener("timeupdate", () => {
     if (!video.duration) return;
-    
     const progress = (video.currentTime / video.duration) * 100;
     progressBar.style.width = `${progress}%`;
-    
     let curMins = Math.floor(video.currentTime / 60);
     let curSecs = Math.floor(video.currentTime % 60).toString().padStart(2, '0');
     let durMins = Math.floor(video.duration / 60);
@@ -542,7 +561,6 @@ progressContainer.addEventListener("click", (e) => {
 });
 
 playPauseBtn.addEventListener("click", togglePlayPause);
-
 muteBtn.addEventListener("click", () => {
     video.muted = !video.muted;
     muteBtn.innerHTML = video.muted ? '<i class="fas fa-volume-mute"></i>' : '<i class="fas fa-volume-up"></i>';
@@ -552,25 +570,18 @@ muteBtn.addEventListener("click", () => {
 fullscreenBtn.addEventListener("click", async () => {
     try {
         const isFS = document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement;
-        
         if (!isFS) {
-            // ENTER FULLSCREEN
             const enterFS = playerContainer.requestFullscreen || playerContainer.webkitRequestFullscreen || playerContainer.mozRequestFullScreen || playerContainer.msRequestFullscreen;
-            
             if (enterFS) {
                 await enterFS.call(playerContainer);
                 fullscreenBtn.innerHTML = '<i class="fas fa-compress"></i>';
-                
-                // Rotation Logic
                 if (screen.orientation && screen.orientation.lock) {
                     await screen.orientation.lock("landscape").catch(e => console.log("Orientation lock blocked"));
                 }
             } else if (video.webkitEnterFullscreen) {
-                // Fallback for iOS/Telegram Webview specialized for video
                 video.webkitEnterFullscreen();
             }
         } else {
-            // EXIT FULLSCREEN
             const exitFS = document.exitFullscreen || document.webkitExitFullscreen || document.mozCancelFullScreen || document.msExitFullscreen;
             if (exitFS) {
                 await exitFS.call(document);
@@ -585,7 +596,6 @@ fullscreenBtn.addEventListener("click", async () => {
     }
 });
 
-// Sync UI when fullscreen changes via system gestures
 const fsEvents = ['fullscreenchange', 'webkitfullscreenchange', 'mozfullscreenchange', 'MSFullscreenChange'];
 fsEvents.forEach(evt => {
     document.addEventListener(evt, () => {
@@ -600,4 +610,3 @@ fsEvents.forEach(evt => {
         }
     });
 });
-
