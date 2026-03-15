@@ -1,4 +1,4 @@
-const API_BASE = "http://localhost:7860/api"; // Aapka Railway/Backend URL lagayein
+const API_BASE = "/api";
 const MY_ADMIN_ID = 1326069145; // YAHAN APNA ASLI TELEGRAM ID DALEIN
 
 let allVideos = [];
