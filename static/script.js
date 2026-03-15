@@ -1,4 +1,5 @@
 const API_BASE = "/api"; 
+const CF_WORKER_URL = "https://minitube-stream.f0471649.workers.dev";
 const MY_ADMIN_ID = 1326069145; // Aapka Admin ID
 
 let allVideos = [];
@@ -319,7 +320,10 @@ function openShortsPlayer(targetVideoId = null) {
             const vid = document.getElementById(`short-vid-${index}`);
             
             if (entry.isIntersecting) {
-                if(!vid.src) vid.src = `${API_BASE}/stream/${shortsVideos[index]._id}`;
+                if(!vid.src) {
+                    const video = shortsVideos[index];
+                    vid.src = video.pixeldrain_id ? `${CF_WORKER_URL}/${video.pixeldrain_id}` : `${API_BASE}/stream/${video._id}`;
+                }
                 vid.play().catch(e => console.log("Auto-play prevented"));
                 
                 fetch(`${API_BASE}/views/${shortsVideos[index]._id}`, { method: 'POST' });
@@ -328,7 +332,8 @@ function openShortsPlayer(targetVideoId = null) {
                     if(index + i < shortsVideos.length) {
                         const nextVid = document.getElementById(`short-vid-${index + i}`);
                         if(!nextVid.src) {
-                            nextVid.src = `${API_BASE}/stream/${shortsVideos[index + i]._id}`;
+                            const nextV = shortsVideos[index + i];
+                            nextVid.src = nextV.pixeldrain_id ? `${CF_WORKER_URL}/${nextV.pixeldrain_id}` : `${API_BASE}/stream/${nextV._id}`;
                             nextVid.preload = "auto";
                         }
                     }
@@ -409,7 +414,7 @@ function openLongPlayer(videoId) {
     timeDisplay.innerText = "0:00 / 0:00";
     loadingSpinner.classList.remove('hidden');
 
-    video.src = `${API_BASE}/stream/${videoId}`;
+    video.src = vData.pixeldrain_id ? `${CF_WORKER_URL}/${vData.pixeldrain_id}` : `${API_BASE}/stream/${videoId}`;
     video.load();
     video.play();
     playPauseBtn.innerHTML = '<i class="fas fa-pause"></i>';
