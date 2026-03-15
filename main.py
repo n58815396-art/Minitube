@@ -578,6 +578,61 @@ async def upload_video(
     if os.path.exists(thumb_path): os.remove(thumb_path)
     return {"status": "success"}
 
+@app.get("/api/pd/{file_id}")
+async def proxy_pixeldrain(file_id: str, request: Request):
+    range_header = request.headers.get("Range")
+    url = f"https://pixeldrain.com/api/file/{file_id}"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    }
+    if range_header:
+        headers["Range"] = range_header
+    
+    key = PIXELDRAIN_KEYS[0].strip() if PIXELDRAIN_KEYS and PIXELDRAIN_KEYS[0] else ""
+    auth = aiohttp.BasicAuth('', key) if key else None
+
+    try:
+        # Use a single session for the request
+        timeout = aiohttp.ClientTimeout(total=None) # No timeout for streaming
+        session = aiohttp.ClientSession(timeout=timeout)
+        resp = await session.get(url, headers=headers, auth=auth)
+        
+        if resp.status not in [200, 206]:
+            await session.close()
+            raise HTTPException(status_code=resp.status, detail="Pixeldrain error")
+
+        # Filter and forward necessary headers
+        res_headers = {}
+        for h in ["Content-Type", "Content-Length", "Content-Range", "Accept-Ranges", "Content-Disposition"]:
+            if h in resp.headers:
+                res_headers[h] = resp.headers[h]
+        
+        # Helper to ensure session closes after streaming
+        async def stream_gen():
+            try:
+                async for chunk in resp.content.iter_chunked(1024*1024): # 1MB chunks
+                    yield chunk
+            finally:
+                await resp.release()
+                await session.close()
+
+        return StreamingResponse(stream_gen(), status_code=resp.status, headers=res_headers)
+    except Exception as e:
+        print(f"Proxy Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/pd/{file_id}/thumbnail")
+async def proxy_pixeldrain_thumb(file_id: str):
+    url = f"https://pixeldrain.com/api/file/{file_id}/thumbnail"
+    key = PIXELDRAIN_KEYS[0].strip() if PIXELDRAIN_KEYS and PIXELDRAIN_KEYS[0] else ""
+    auth = aiohttp.BasicAuth('', key) if key else None
+    
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, auth=auth) as resp:
+            if resp.status != 200: return FileResponse("static/placeholder.jpg") # Fallback
+            content = await resp.read()
+            return StreamingResponse(iter([content]), media_type=resp.headers.get("Content-Type", "image/jpeg"))
+
 @app.get("/api/stream/{video_id}")
 async def stream_video(video_id: str, request: Request):
     try: video = await db.videos.find_one({"_id": ObjectId(video_id)})
@@ -585,6 +640,10 @@ async def stream_video(video_id: str, request: Request):
     if not video: raise HTTPException(status_code=404, detail="Not found")
     
     pixeldrain_id = video.get("pixeldrain_id")
+    
+    if pixeldrain_id:
+        # Stream via our local proxy instead of Cloudflare
+        return await proxy_pixeldrain(pixeldrain_id, request)
     
     async def telegram_stream_generator(v_doc):
         fresh_file_id = await get_working_file_id(v_doc)
@@ -594,13 +653,9 @@ async def stream_video(video_id: str, request: Request):
                 yield chunk
         except Exception as e: print(f"[Telegram Stream] Error: {e}")
 
-    if pixeldrain_id:
-        # User ko Cloudflare Worker par Redirect kar do (Superfast Speed)
-        # Worker URL ke peeche File ID attach hogi
-        return RedirectResponse(url=f"{CF_WORKER_URL}/{pixeldrain_id}")
-    
-    # Direct Telegram Fallback (Only if Pixeldrain ID is missing)
+    # Direct Telegram Fallback
     return StreamingResponse(telegram_stream_generator(video), media_type="video/mp4")
+
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
