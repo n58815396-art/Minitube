@@ -191,7 +191,7 @@ function openShortsPlayer(startIndex = 0) {
     shortsVideos.forEach((short, index) => {
         shortsWrapper.innerHTML += `
             <div class="short-player-item" data-index="${index}" data-id="${short._id}">
-                <video id="short-vid-${index}" loop playsinline preload="none"></video>
+                <video id="short-vid-${index}" loop playsinline muted preload="auto"></video>
                 <div class="short-info-overlay">
                     <h3>${short.title}</h3>
                 </div>
