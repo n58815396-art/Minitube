@@ -678,6 +678,49 @@ async def stream_video(video_id: str, request: Request):
 
         return StreamingResponse(telegram_stream_full(), headers=headers)
 
+
+# --- 🚀 HLS MASTERPLAN: PLAYLIST GENERATOR ROUTE ---
+@app.get("/api/playlist/{video_id}.m3u8")
+async def get_hls_playlist(video_id: str):
+    try:
+        # 1. Database se video aur uske chunks nikalo
+        video = await db.videos.find_one({"_id": ObjectId(video_id)})
+    except Exception as e:
+        raise HTTPException(status_code=400, detail="Invalid Video ID")
+
+    # Agar video nahi mili ya purani normal video hai jisme chunks nahi hain
+    if not video or "chunks" not in video:
+        raise HTTPException(status_code=404, detail="HLS Playlist not found for this video")
+
+    # 2. HLS Playlist ka format (Header) taiyar karo
+    m3u8_content = [
+        "#EXTM3U",
+        "#EXT-X-VERSION:3",
+        "#EXT-X-TARGETDURATION:15", # Max chunk time
+        "#EXT-X-MEDIA-SEQUENCE:0",
+        "#EXT-X-PLAYLIST-TYPE:VOD"
+    ]
+
+    # 3. Har chunk ko Cloudflare Worker ke link ke sath jod do
+    for chunk in video["chunks"]:
+        file_id = chunk["file_id"]
+        
+        # Yeh link seedha aapke Cloudflare Worker ko hit karega
+        chunk_url = f"{CF_WORKER_URL}/stream_chunk/{file_id}"
+        
+        m3u8_content.append("#EXTINF:10.0,") # Har tukda lagbhag 10 sec ka hai
+        m3u8_content.append(chunk_url)
+
+    m3u8_content.append("#EXT-X-ENDLIST")
+    
+    # 4. Saari lines ko jod kar ek text file ki tarah return karo
+    playlist_text = "\n".join(m3u8_content)
+
+    return StreamingResponse(
+        iter([playlist_text]),
+        media_type="application/x-mpegURL"
+    )
+
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
 if __name__ == "__main__":
