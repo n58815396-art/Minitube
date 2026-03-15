@@ -1,11 +1,11 @@
 const API_BASE = "/api"; 
-// Naam change kar diya taaki confusion na ho, yeh thumbnails ke liye hai
 const PD_PROXY_URL = "/api/pd"; 
 const MY_ADMIN_ID = 1326069145; // Aapka Admin ID
 
 let allVideos = [];
 let shortsVideos = [];
 let longVideos = [];
+let hlsPlayer = null; // HLS Player ka global instance (Memory bachane ke liye)
 
 // DOM Elements
 const mainContent = document.getElementById("main-content");
@@ -18,7 +18,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     try {
         if (window.Telegram && window.Telegram.WebApp) {
             window.Telegram.WebApp.ready(); 
-            window.Telegram.WebApp.expand(); // Ensure it fills the screen
+            window.Telegram.WebApp.expand(); 
             const tgUser = window.Telegram.WebApp.initDataUnsafe.user;
             if (tgUser && tgUser.id == MY_ADMIN_ID) {
                 const adminBtn = document.getElementById("adminNavBtn");
@@ -63,7 +63,8 @@ async function fetchAllVideos() {
         });
         allVideos = await res.json();
         shortsVideos = allVideos.filter(v => v.type === "short");
-        longVideos = allVideos.filter(v => v.type === "long");
+        // Update: HLS movies ko bhi long videos wali list mein dalna hai
+        longVideos = allVideos.filter(v => v.type === "long" || v.type === "hls_movie");
     } catch (e) {
         console.error("Error fetching videos:", e);
     }
@@ -76,7 +77,7 @@ async function searchVideos() {
         return;
     }
 
-    setActiveNav(-1); // Deactivate all nav items
+    setActiveNav(-1); 
     mainContent.innerHTML = `
         <div class="section-loader">
             <i class="fas fa-circle-notch fa-spin"></i>
@@ -102,14 +103,16 @@ async function searchVideos() {
         }
 
         searchResults.forEach(video => {
+            // Check if it's a short or long/hls video
+            const isShort = video.type === 'short';
             mainContent.innerHTML += `
-                <div class="long-video-card" onclick="${video.type === 'long' ? `openLongPlayer('${video._id}')` : `openShortsPlayer('${video._id}')`}">
+                <div class="long-video-card" onclick="${!isShort ? `openLongPlayer('${video._id}')` : `openShortsPlayer('${video._id}')`}">
                     <div class="thumbnail-container">
                         <img src="${PD_PROXY_URL}/${video.pixeldrain_id}/thumbnail" onerror="this.src='https://via.placeholder.com/640x360'">
                     </div>
                     <div class="video-info">
                         <h3>${video.title}</h3>
-                        <p>${video.view_count || 0} views • ${video.type === 'short' ? 'Short' : 'Video'}</p>
+                        <p>${video.view_count || 0} views • ${isShort ? 'Short' : 'Video'}</p>
                     </div>
                 </div>
             `;
@@ -142,7 +145,7 @@ function renderFeed(vList, emptyMsg = "No videos found") {
     for (let i = 0; i < vList.length; i++) {
         let v = vList[i];
         
-        if (v.type === "long") {
+        if (v.type === "long" || v.type === "hls_movie") {
             mainContent.innerHTML += `
                 <div class="long-video-card" onclick="openLongPlayer('${v._id}')">
                     <div class="thumbnail-container">
@@ -155,7 +158,6 @@ function renderFeed(vList, emptyMsg = "No videos found") {
                 </div>
             `;
         } else {
-            // Consecutive Shorts Grouping (up to 4)
             let shortsGroup = [v];
             while (i + 1 < vList.length && vList[i+1].type === "short" && shortsGroup.length < 4) {
                 i++;
@@ -231,8 +233,10 @@ async function loadCategoriesTab() {
                         <span class="view-all" onclick="viewAllCategory('${cat._id}', '${cat.name}')">View All</span>
                     </div>
                     <div class="category-horizontal-scroll">
-                        ${top5.map(v => `
-                            <div class="category-video-card" onclick="${v.type === 'long' ? `openLongPlayer('${v._id}')` : `openShortsPlayer('${v._id}')`}">
+                        ${top5.map(v => {
+                            const isShort = v.type === 'short';
+                            return `
+                            <div class="category-video-card" onclick="${!isShort ? `openLongPlayer('${v._id}')` : `openShortsPlayer('${v._id}')`}">
                                 <div class="thumbnail-container">
                                     <img src="${PD_PROXY_URL}/${v.pixeldrain_id}/thumbnail" onerror="this.src='https://via.placeholder.com/320x180'">
                                 </div>
@@ -240,7 +244,8 @@ async function loadCategoriesTab() {
                                     <h3 style="font-size:12px;">${v.title}</h3>
                                 </div>
                             </div>
-                        `).join('')}
+                            `;
+                        }).join('')}
                     </div>
                 </div>
             `;
@@ -256,8 +261,9 @@ function viewAllCategory(catId, catName) {
         <h2 class="section-header"><i class="fas fa-arrow-left" onclick="loadCategoriesTab()"></i> ${catName}</h2>
     `;
     catVideos.forEach(video => {
+        const isShort = video.type === 'short';
         mainContent.innerHTML += `
-            <div class="long-video-card" onclick="${video.type === 'long' ? `openLongPlayer('${video._id}')` : `openShortsPlayer('${video._id}')`}">
+            <div class="long-video-card" onclick="${!isShort ? `openLongPlayer('${video._id}')` : `openShortsPlayer('${video._id}')`}">
                 <div class="thumbnail-container">
                     <img src="${PD_PROXY_URL}/${video.pixeldrain_id}/thumbnail" onerror="this.src='https://via.placeholder.com/640x360'">
                 </div>
@@ -280,7 +286,6 @@ let shortsObserver;
 function openShortsPlayer(targetVideoId = null) {
     shortsContainer.classList.remove("hidden");
     
-    // Use the current shortsVideos order (Stable)
     shortsWrapper.innerHTML = "";
     shortsVideos.forEach((short, index) => {
         shortsWrapper.innerHTML += `
@@ -323,7 +328,6 @@ function openShortsPlayer(targetVideoId = null) {
             if (entry.isIntersecting) {
                 if(!vid.src) {
                     const video = shortsVideos[index];
-                    // MAGIC FIX: Now it always goes to backend to decide CF vs PD
                     vid.src = `${API_BASE}/stream/${video._id}`;
                 }
                 vid.play().catch(e => console.log("Auto-play prevented"));
@@ -335,7 +339,6 @@ function openShortsPlayer(targetVideoId = null) {
                         const nextVid = document.getElementById(`short-vid-${index + i}`);
                         if(!nextVid.src) {
                             const nextV = shortsVideos[index + i];
-                            // MAGIC FIX for preload
                             nextVid.src = `${API_BASE}/stream/${nextV._id}`;
                             nextVid.preload = "auto";
                         }
@@ -381,7 +384,7 @@ function closeShorts() {
 }
 
 /* =======================================
-   LONG VIDEO PLAYER
+   LONG VIDEO PLAYER (HLS MAGIC YAHAN HAI)
 ======================================= */
 const videoOverlay = document.getElementById("video-player-overlay");
 const playerContainer = document.getElementById("playerContainer");
@@ -400,29 +403,65 @@ const forwardInd = document.getElementById("forwardIndicator");
 
 let controlsTimeout;
 let lastTap = 0;
+
 function openLongPlayer(videoId) {
     const vData = allVideos.find(v => v._id === videoId);
     if(!vData) return;
 
     videoOverlay.classList.remove("hidden");
-    videoOverlay.scrollTo(0, 0); // Reset scroll to top
+    videoOverlay.scrollTo(0, 0); 
     document.getElementById("playerVideoTitle").innerText = vData.title;
     document.getElementById("playerVideoViews").innerText = (vData.view_count || 0) + " views";
 
-    // Reset Player UI for a fresh look
     video.pause();
     video.currentTime = 0;
     progressBar.style.width = "0%";
     bufferBar.style.width = "0%";
     timeDisplay.innerText = "0:00 / 0:00";
     loadingSpinner.classList.remove('hidden');
-
-    // MAGIC FIX: Always route through backend stream
-    video.src = `${API_BASE}/stream/${videoId}`;
-    video.load();
-    video.play();
     playPauseBtn.innerHTML = '<i class="fas fa-pause"></i>';
 
+    // Purane HLS player ko clean karna taaki memory full na ho
+    if (hlsPlayer) {
+        hlsPlayer.destroy();
+        hlsPlayer = null;
+    }
+
+    // Check karo kya ye nayi Termux wali HLS movie hai ya purani file
+    const isHls = (vData.type === "hls_movie" || vData.chunks || vData.total_chunks);
+    const standardStreamUrl = `${API_BASE}/stream/${videoId}`;
+    const hlsPlaylistUrl = `${API_BASE}/playlist/${videoId}.m3u8`;
+
+    if (isHls) {
+        // HLS Logic Start 🚀
+        if (typeof Hls !== 'undefined' && Hls.isSupported()) {
+            hlsPlayer = new Hls();
+            hlsPlayer.loadSource(hlsPlaylistUrl);
+            hlsPlayer.attachMedia(video);
+            hlsPlayer.on(Hls.Events.MANIFEST_PARSED, function() {
+                video.play().catch(e => console.log("Auto-play blocked", e));
+            });
+        } 
+        // Agar browser natively HLS support karta hai (Jaise iOS Safari / iPhone)
+        else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+            video.src = hlsPlaylistUrl;
+            video.addEventListener('loadedmetadata', function() {
+                video.play().catch(e => console.log("Auto-play blocked", e));
+            });
+        } 
+        // Sab fail hone par Ultimate Fallback
+        else {
+            video.src = standardStreamUrl;
+            video.play().catch(e => console.log("Auto-play blocked", e));
+        }
+    } else {
+        // Purani videos ke liye direct stream (Pyrogram/Pixeldrain)
+        video.src = standardStreamUrl;
+        video.load();
+        video.play().catch(e => console.log("Auto-play blocked", e));
+    }
+
+    // Views Update API
     const initData = window.Telegram?.WebApp?.initData || "";
     fetch(`${API_BASE}/views/${videoId}`, { 
         method: 'POST',
@@ -433,13 +472,26 @@ function openLongPlayer(videoId) {
     loadRelatedVideos(videoId);
 }
 
+function closePlayer() {
+    videoOverlay.classList.add("hidden");
+    video.pause();
+    video.src = "";
+    
+    // Band karte time HLS player ko destroy karna zaroori hai!
+    if (hlsPlayer) {
+        hlsPlayer.destroy();
+        hlsPlayer = null;
+    }
+    
+    if (document.fullscreenElement) { document.exitFullscreen(); }
+}
+
 async function loadRelatedVideos(currentVideoId) {
     const container = document.getElementById("related-videos-container");
     container.innerHTML = `<div class="section-loader"><i class="fas fa-circle-notch fa-spin"></i></div>`;
 
     try {
         const initData = window.Telegram?.WebApp?.initData || "";
-        // Fetch only LONG videos for recommendations
         const res = await fetch(`${API_BASE}/videos/recommended?current_video_id=${currentVideoId}&type=long`, {
             headers: { 'x-telegram-init-data': initData }
         });
@@ -460,14 +512,6 @@ async function loadRelatedVideos(currentVideoId) {
             `;
         });
     } catch(e) { container.innerHTML = ""; }
-}
-
-
-function closePlayer() {
-    videoOverlay.classList.add("hidden");
-    video.pause();
-    video.src = "";
-    if (document.fullscreenElement) { document.exitFullscreen(); }
 }
 
 function toggleControls() {
@@ -576,7 +620,6 @@ fullscreenBtn.addEventListener("click", async () => {
     try {
         const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
         
-        // SOLUTION B: If on mobile/Telegram, use the Native System Player
         if (isMobile && video.webkitEnterFullscreen) {
             video.webkitEnterFullscreen();
             return;
