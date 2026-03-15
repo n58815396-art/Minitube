@@ -207,7 +207,13 @@ ADMIN_HTML = """
                 <div class="progress-wrapper" id="upload-progress-container"><div id="upload-progress-bar"></div><div id="progress-text">0%</div></div>
             </div>
         </div>
-        <div id="tab-videos" style="display:none;"><div class="card"><h3>Manage Videos</h3><div id="video-list-container"></div></div></div>
+        <div id="tab-videos" style="display:none;">
+            <div class="card">
+                <h3>Manage Videos</h3>
+                <input type="text" id="admin-video-search" placeholder="Search by title..." style="margin-bottom:15px; border-color:#555;" oninput="filterAdminVideos()">
+                <div id="video-list-container"></div>
+            </div>
+        </div>
     </div>
     <div id="editModal" class="modal"><div class="modal-content"><div class="modal-header"><h3>Edit Video</h3></div><input type="hidden" id="edit-video-id"><label>Title:</label><input type="text" id="edit-video-title"><label>Category:</label><select id="edit-video-cat"></select><button onclick="saveEdit()" style="background:#28a745;">Save Changes</button><button onclick="closeModal()" style="background:#444;">Cancel</button></div></div>
     <div id="confirmModal" class="modal"><div class="modal-content"><div class="modal-header"><h3>Confirmation</h3></div><p id="confirm-text"></p><div style="display:flex; gap:10px;"><button id="confirm-yes-btn" style="background:#dc3545; flex:1;">Yes, Delete</button><button onclick="closeConfirm()" style="background:#444; flex:1;">Cancel</button></div></div></div>
@@ -272,20 +278,37 @@ ADMIN_HTML = """
             if(tab === 'videos') loadVideosList();
         }
 
+        let allAdminVideos = [];
         async function loadVideosList() {
             const container = document.getElementById('video-list-container');
             container.innerHTML = '<div class="section-loader"><i class="fas fa-circle-notch fa-spin"></i><span>Loading...</span></div>';
             try {
-                let res = await fetch('/api/videos'), videos = await res.json(); container.innerHTML = "";
-                if(videos.length === 0) { container.innerHTML = '<div class="empty-state"><i class="fas fa-film"></i><p>No videos</p></div>'; return; }
-                videos.forEach(v => {
-                    const div = document.createElement('div'); div.className = 'video-item';
-                    div.innerHTML = `<div class="video-item-info"><h4>${v.title}</h4><small>${v.type.toUpperCase()}</small></div>
-                        <div class="video-actions"><button class="action-btn edit-btn" onclick="openEditModal('${v._id}', '${v.title.replace(/'/g, "\\'")}', '${v.category_id}')">Edit</button>
-                        <button class="action-btn delete-btn" onclick="handleDelete('${v._id}')">Delete</button></div>`;
-                    container.appendChild(div);
-                });
+                let res = await fetch('/api/videos'), videos = await res.json(); 
+                allAdminVideos = videos;
+                renderAdminVideos(videos);
             } catch(e) { container.innerHTML = "Error loading videos"; }
+        }
+
+        function renderAdminVideos(videos) {
+            const container = document.getElementById('video-list-container');
+            container.innerHTML = "";
+            if(videos.length === 0) { 
+                container.innerHTML = '<div class="empty-state"><i class="fas fa-film"></i><p>No videos found</p></div>'; 
+                return; 
+            }
+            videos.forEach(v => {
+                const div = document.createElement('div'); div.className = 'video-item';
+                div.innerHTML = `<div class="video-item-info"><h4>${v.title}</h4><small>${v.type.toUpperCase()}</small></div>
+                    <div class="video-actions"><button class="action-btn edit-btn" onclick="openEditModal('${v._id}', '${v.title.replace(/'/g, "\\'")}', '${v.category_id}')">Edit</button>
+                    <button class="action-btn delete-btn" onclick="handleDelete('${v._id}')">Delete</button></div>`;
+                container.appendChild(div);
+            });
+        }
+
+        function filterAdminVideos() {
+            const query = document.getElementById('admin-video-search').value.toLowerCase();
+            const filtered = allAdminVideos.filter(v => v.title.toLowerCase().includes(query));
+            renderAdminVideos(filtered);
         }
 
         async function createCategory() {
@@ -371,31 +394,95 @@ async def stream_media(file_id: str, is_image: bool = False):
 
 # --- Recommendation Logic ---
 @app.get("/api/videos/recommended")
-async def get_recommended_videos(user_id: str = Depends(get_user_id), current_video_id: Optional[str] = None):
-    all_videos_cursor = db.videos.find().sort("created_at", -1)
+async def get_recommended_videos(user_id: str = Depends(get_user_id), current_video_id: Optional[str] = None, type: Optional[str] = None):
+    # 1. Fetch all videos (with optional type filter)
+    query = {}
+    if type: query["type"] = type
+    
+    all_videos_cursor = db.videos.find(query).sort("created_at", -1)
     all_v = []
-    async for v in all_videos_cursor: v["_id"] = str(v["_id"]); all_v.append(v)
-    if user_id == "guest":
+    async for v in all_videos_cursor:
+        v["_id"] = str(v["_id"])
+        if v["_id"] == current_video_id: continue
+        all_v.append(v)
+
+    if user_id == "guest" or not all_v:
         import random
         random.shuffle(all_v)
         return all_v[:40]
+
+    # 2. Get User Profile
     profile = await db.user_profiles.find_one({"user_id": user_id}) or {"categories": {}, "tags": {}}
     user_cats = profile.get("categories", {})
     user_tags = profile.get("tags", {})
-    scored_videos = []
+    
+    # Identify top interests
+    top_cats = sorted(user_cats.keys(), key=lambda k: user_cats[k], reverse=True)[:3]
+    top_tags = sorted(user_tags.keys(), key=lambda k: user_tags[k], reverse=True)[:5]
+
+    # 3. Create Buckets
+    personalized = []
+    fresh = []
+    discovery = []
+    trending = []
+    
     now = datetime.utcnow()
+    seen_ids = set()
+
+    # Bucket A: Personalized (Matches interests)
     for v in all_v:
-        if v["_id"] == current_video_id: continue
-        score = 0
-        score += user_cats.get(v.get("category_id"), 0) * 10
-        for tag in v.get("tags", []): score += user_tags.get(tag, 0) * 5
-        if now - v["created_at"] < timedelta(days=7): score += 30
-        score += min(v.get("view_count", 0) / 10, 50)
-        import random
-        score += random.randint(0, 20)
-        scored_videos.append({"video": v, "score": score})
-    scored_videos.sort(key=lambda x: x["score"], reverse=True)
-    return [x["video"] for x in scored_videos[:50]]
+        is_p = v.get("category_id") in top_cats or any(t in top_tags for t in v.get("tags", []))
+        if is_p:
+            personalized.append(v)
+            seen_ids.add(v["_id"])
+
+    # Bucket B: Fresh (New uploads, last 7 days, not seen in P)
+    for v in all_v:
+        if v["_id"] in seen_ids: continue
+        if now - v["created_at"] < timedelta(days=7):
+            fresh.append(v)
+            seen_ids.add(v["_id"])
+
+    # Bucket C: Trending (Popular, not seen in P/F)
+    remaining = [v for v in all_v if v["_id"] not in seen_ids]
+    remaining.sort(key=lambda x: x.get("view_count", 0), reverse=True)
+    trending = remaining[:20]
+    for v in trending: seen_ids.add(v["_id"])
+
+    # Bucket D: Discovery (Random mix of rest)
+    discovery = [v for v in all_v if v["_id"] not in seen_ids]
+    import random
+    random.shuffle(discovery)
+
+    # 4. Pattern Mixing (Pattern: 2P, 1F, 1P, 1D, 1T)
+    final_feed = []
+    p_ptr, f_ptr, d_ptr, t_ptr = 0, 0, 0, 0
+    
+    def pick(bucket, ptr):
+        if ptr < len(bucket): return bucket[ptr], ptr + 1
+        return None, ptr
+
+    for _ in range(10): # 10 cycles
+        for _ in range(2):
+            vid, p_ptr = pick(personalized, p_ptr)
+            if vid: final_feed.append(vid)
+        vid, f_ptr = pick(fresh, f_ptr)
+        if vid: final_feed.append(vid)
+        vid, p_ptr = pick(personalized, p_ptr)
+        if vid: final_feed.append(vid)
+        vid, d_ptr = pick(discovery, d_ptr)
+        if vid: final_feed.append(vid)
+        vid, t_ptr = pick(trending, t_ptr)
+        if vid: final_feed.append(vid)
+
+    if len(final_feed) < 20:
+        existing_ids = {v["_id"] for v in final_feed}
+        for v in all_v:
+            if v["_id"] not in existing_ids:
+                final_feed.append(v)
+                if len(final_feed) >= 40: break
+
+    return final_feed[:50]
 
 @app.post("/api/views/{video_id}")
 async def increment_view(video_id: str, user_id: str = Depends(get_user_id)):
@@ -459,7 +546,6 @@ async def upload_video(
     video_doc = {"title": title, "type": video_type, "category_id": category_id, "tags": final_tags, "file_id": file_id, "pixeldrain_id": pixeldrain_id, "thumbnail_id": thumbnail_id, "message_id": video_msg.id, "view_count": 0, "last_active": datetime.utcnow(), "created_at": datetime.utcnow()}
     await db.videos.insert_one(video_doc)
     for tag in final_tags: await db.tags.update_one({"name": tag}, {"$inc": {"count": 1}}, upsert=True)
-    
     if os.path.exists(temp_video): os.remove(temp_video)
     if os.path.exists(thumb_path): os.remove(thumb_path)
     return {"status": "success"}
