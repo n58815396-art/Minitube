@@ -378,22 +378,46 @@ async def upload_video(
     return {"status": "success"}
 
 @app.get("/api/stream/{video_id}")
-async def stream_video(video_id: str):
+async def stream_video(video_id: str, request: Request):
     try:
         video = await db.videos.find_one({"_id": ObjectId(video_id)})
     except:
         raise HTTPException(status_code=400, detail="Invalid Video ID")
         
-    if not video or not video.get("pixeldrain_id"):
-        if video and video.get("file_id"):
-            async def fallback_generator():
-                async for chunk in tg_client.stream_media(video["file_id"]):
-                    yield chunk
-            return StreamingResponse(fallback_generator(), media_type="video/mp4")
+    if not video:
         raise HTTPException(status_code=404, detail="Video not found")
+
+    pixeldrain_id = video.get("pixeldrain_id")
+    file_id = video.get("file_id")
+
+    # If Pixeldrain ID exists, stream from Pixeldrain via Proxy
+    if pixeldrain_id:
+        pd_url = f"https://pixeldrain.com/api/file/{pixeldrain_id}"
+        range_header = request.headers.get("Range", "bytes=0-")
+        
+        async def pixeldrain_proxy():
+            headers = {"Range": range_header}
+            async with aiohttp.ClientSession() as session:
+                async with session.get(pd_url, headers=headers) as resp:
+                    if resp.status in [200, 206]:
+                        async for chunk in resp.content.iter_chunked(1024*1024): # 1MB chunks
+                            yield chunk
+                    else:
+                        # Fallback to Telegram if Pixeldrain fails
+                        if file_id:
+                            async for chunk in tg_client.stream_media(file_id):
+                                yield chunk
+
+        return StreamingResponse(pixeldrain_proxy(), media_type="video/mp4")
     
-    pd_url = f"https://pixeldrain.com/api/file/{video['pixeldrain_id']}"
-    return RedirectResponse(url=pd_url, status_code=302)
+    # Direct Telegram Fallback if no Pixeldrain ID
+    if file_id:
+        async def fallback_generator():
+            async for chunk in tg_client.stream_media(file_id):
+                yield chunk
+        return StreamingResponse(fallback_generator(), media_type="video/mp4")
+    
+    raise HTTPException(status_code=404, detail="No stream source found")
 
 if not os.path.exists("static"):
     os.makedirs("static")
@@ -405,3 +429,4 @@ app.mount("/", StaticFiles(directory="static", html=True), name="static")
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=7860)
+
