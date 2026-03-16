@@ -510,32 +510,32 @@ async def delete_video(video_id: str, admin_id: str = Depends(get_admin)):
 async def create_category(name: str = Form(...), admin_id: str = Depends(get_admin)):
     await db.categories.insert_one({"name": name})
     return {"status": "success"}
-# Termux se aane wale data ka structure
+# Termux se aane wale data ka naya structure
 class HLSUploadRequest(BaseModel):
     title: str
     admin_id: str
-    chunks: list # Isme {chunk_name, file_id} aayenge
+    thumb_id: str = ""   
+    chunks: list 
 
 @app.post("/api/admin/hls_upload")
 async def receive_hls_upload(data: HLSUploadRequest):
-    # 1. Admin verification (Security)
-    if data.admin_id != ADMIN_ID:
+    # 1. FIX: Seedha number likh diya taaki server confuse na ho
+    if data.admin_id != "1326069145":
         raise HTTPException(status_code=403, detail="Bhai, tu admin nahi hai!")
 
     # 2. Database format taiyar karna
     video_doc = {
         "title": data.title,
-        "type": "long", # HLS hamesha long video hogi
+        "type": "long", 
         "is_hls": True,
-        "thumbnail_id": data.thumb_id,
-        "category_id": "", # Baad me admin panel se edit kar sakte hain
+        "thumbnail_id": data.thumb_id, 
+        "category_id": "", 
         "tags": [],
         "chunks": data.chunks,
         "view_count": 0,
         "last_active": datetime.utcnow(),
         "created_at": datetime.utcnow()
     }
-
     # 3. Data ko specifically "mini_clips" database ke "videos" collection me save karna
     await db.videos.insert_one(video_doc)
     
