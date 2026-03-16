@@ -614,22 +614,27 @@ async def proxy_pixeldrain(file_id: str, request: Request):
 
 @app.get("/api/pd/{file_id}/thumbnail")
 async def proxy_pixeldrain_thumb(file_id: str):
-    # 🌟 HLS THUMBNAIL MAGIC TRICK 🌟
+    # 1. Check karo ki video Termux (HLS) wali hai ya Admin wali
     video = await db.videos.find_one({"pixeldrain_id": file_id, "is_hls": True})
-    if video:
-        # HLS video ke liye sidha Pixeldrain ki photo de do
-        return RedirectResponse(url=f"https://pixeldrain.com/api/file/{file_id}")
     
-    # --- Purana App wala code ---
-    url = f"https://pixeldrain.com/api/file/{file_id}/thumbnail"
+    # 🌟 MAGIC FIX: Koi Redirect nahi! 
+    # Agar Termux wali photo hai toh direct file uthao, warna purana thumbnail uthao
+    if video:
+        url = f"https://pixeldrain.com/api/file/{file_id}"
+    else:
+        url = f"https://pixeldrain.com/api/file/{file_id}/thumbnail"
+        
     key = PIXELDRAIN_KEYS[0].strip() if PIXELDRAIN_KEYS and PIXELDRAIN_KEYS[0] else ""
     auth = aiohttp.BasicAuth('', key) if key else None
     
+    # 2. Railway khud photo layega aur App ko dega (Bina kisi jhatake ke)
     async with aiohttp.ClientSession() as session:
         async with session.get(url, auth=auth) as resp:
-            if resp.status != 200: return FileResponse("static/placeholder.jpg")
+            if resp.status != 200: 
+                return FileResponse("static/placeholder.jpg")
             content = await resp.read()
             return StreamingResponse(iter([content]), media_type=resp.headers.get("Content-Type", "image/jpeg"))
+
 
 # --- 🚀 CLOUDFLARE BAAHUBALI ROUTE W/ CHUNKING FIX ---
 @app.get("/api/stream/{video_id}")
