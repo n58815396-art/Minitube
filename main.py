@@ -511,32 +511,46 @@ async def create_category(name: str = Form(...), admin_id: str = Depends(get_adm
     await db.categories.insert_one({"name": name})
     return {"status": "success"}
 
+# 🌟 NAYA STRUCTURE: Ab Termux se aane wale tags, category aur type bhi catch karega
 class HLSUploadRequest(BaseModel):
     title: str
     admin_id: str
     thumb_id: str = ""   
     chunks: list 
+    category_id: str = ""   
+    type: str = "long"      
+    tags: list = []         
 
 @app.post("/api/admin/hls_upload")
 async def receive_hls_upload(data: HLSUploadRequest):
     if data.admin_id != "1326069145":
         raise HTTPException(status_code=403, detail="Bhai, tu admin nahi hai!")
 
+    # 🌟 FIX: Duplicate tags ko hatana (e.g., ["funny", "funny", "action"] -> ["funny", "action"])
+    unique_tags = list(set(data.tags))
+
     video_doc = {
         "title": data.title,
-        "type": "long", 
+        "type": data.type,               
         "is_hls": True,
         "pixeldrain_id": data.thumb_id, 
         "thumbnail_id": data.thumb_id, 
-        "category_id": "", 
-        "tags": [],
+        "category_id": data.category_id, 
+        "tags": unique_tags,             # <--- Yahan data.tags ki jagah unique_tags daal diya
         "chunks": data.chunks,
         "view_count": 0,
         "last_active": datetime.utcnow(),
         "created_at": datetime.utcnow()
     }
     await db.videos.insert_one(video_doc)
+    
+    for tag in unique_tags:              # <--- Yahan bhi unique_tags kar diya
+        if tag:
+            await db.tags.update_one({"name": tag}, {"$inc": {"count": 1}}, upsert=True)
+            
     return {"status": "success", "message": "HLS Video database me save ho gayi!"}
+
+
 
 @app.post("/api/admin/upload")
 async def upload_video(
