@@ -527,6 +527,7 @@ async def receive_hls_upload(data: HLSUploadRequest):
         "title": data.title,
         "type": "long", # HLS hamesha long video hogi
         "is_hls": True,
+        "thumbnail_id": data.thumb_id,
         "category_id": "", # Baad me admin panel se edit kar sakte hain
         "tags": [],
         "chunks": data.chunks,
