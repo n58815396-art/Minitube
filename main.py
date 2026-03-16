@@ -650,16 +650,34 @@ async def proxy_pixeldrain_thumb(file_id: str):
             return StreamingResponse(iter([content]), media_type=resp.headers.get("Content-Type", "image/jpeg"))
 
 
+# =====================================================================
+# 🌟 NAYA ENDPOINT: CLOUDFLARE WORKER KE LIYE JSON DATA PROVIDER 🌟
+# =====================================================================
+@app.get("/api/video/{video_id}")
+async def get_single_video_json(video_id: str):
+    try:
+        # 1. DB se video dhoondho
+        video = await db.videos.find_one({"_id": ObjectId(video_id)})
+        
+        if not video:
+            raise HTTPException(status_code=404, detail="Video not found")
+            
+        # 2. MongoDB ki '_id' ko JSON ke liye string me badalna zaroori hai
+        video["_id"] = str(video["_id"])
+        
+        # 3. Cloudflare ko poora data JSON format me de do
+        return video
+
+    except Exception as e:
+        raise HTTPException(status_code=400, detail="Invalid Video ID Format")
+# =====================================================================
+
 # --- 🚀 CLOUDFLARE BAAHUBALI ROUTE W/ CHUNKING FIX ---
 @app.get("/api/stream/{video_id}")
 async def stream_video(video_id: str, request: Request):
     try: video = await db.videos.find_one({"_id": ObjectId(video_id)})
     except: raise HTTPException(status_code=400, detail="Invalid ID")
     if not video: raise HTTPException(status_code=404, detail="Not found")
-
-    # 🌟 HLS PLAYLIST MAGIC TRICK 🌟
-    if video.get("is_hls"):
-        return RedirectResponse(url=f"/api/playlist/{video_id}.m3u8")
 
     fresh_file_id = await get_working_file_id(video)
 
@@ -722,39 +740,6 @@ async def stream_video(video_id: str, request: Request):
             except Exception as e: 
                 print(f"[Telegram Full Stream] Error: {e}")
         return StreamingResponse(telegram_stream_full(), headers=headers)
-
-# --- 🚀 HLS MASTERPLAN: PLAYLIST GENERATOR ROUTE ---
-@app.get("/api/playlist/{video_id}.m3u8")
-async def get_hls_playlist(video_id: str):
-    try:
-        video = await db.videos.find_one({"_id": ObjectId(video_id)})
-    except Exception as e:
-        raise HTTPException(status_code=400, detail="Invalid Video ID")
-
-    if not video or "chunks" not in video:
-        raise HTTPException(status_code=404, detail="HLS Playlist not found for this video")
-
-    m3u8_content = [
-        "#EXTM3U",
-        "#EXT-X-VERSION:3",
-        "#EXT-X-TARGETDURATION:15", 
-        "#EXT-X-MEDIA-SEQUENCE:0",
-        "#EXT-X-PLAYLIST-TYPE:VOD"
-    ]
-
-    for chunk in video["chunks"]:
-        file_id = chunk["file_id"]
-        chunk_url = f"{CF_WORKER_URL}/{file_id}"
-        m3u8_content.append("#EXTINF:10.0,") 
-        m3u8_content.append(chunk_url)
-
-    m3u8_content.append("#EXT-X-ENDLIST")
-    
-    playlist_text = "\n".join(m3u8_content)
-    return StreamingResponse(
-        iter([playlist_text]),
-        media_type="application/x-mpegURL"
-    )
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
