@@ -519,16 +519,15 @@ class HLSUploadRequest(BaseModel):
 
 @app.post("/api/admin/hls_upload")
 async def receive_hls_upload(data: HLSUploadRequest):
-    # 1. FIX: Seedha number likh diya taaki server confuse na ho
     if data.admin_id != "1326069145":
         raise HTTPException(status_code=403, detail="Bhai, tu admin nahi hai!")
 
-    # 2. Database format taiyar karna
     video_doc = {
         "title": data.title,
         "type": "long", 
         "is_hls": True,
-        "thumbnail_id": data.thumb_id, 
+        "pixeldrain_id": data.thumb_id, # 🌟 FIX: Isko pixeldrain_id kardo
+        "thumbnail_id": "", 
         "category_id": "", 
         "tags": [],
         "chunks": data.chunks,
@@ -536,10 +535,9 @@ async def receive_hls_upload(data: HLSUploadRequest):
         "last_active": datetime.utcnow(),
         "created_at": datetime.utcnow()
     }
-    # 3. Data ko specifically "mini_clips" database ke "videos" collection me save karna
     await db.videos.insert_one(video_doc)
-    
     return {"status": "success", "message": "HLS Video database me save ho gayi!"}
+
 @app.post("/api/admin/upload")
 async def upload_video(
     request: Request,
@@ -617,6 +615,13 @@ async def proxy_pixeldrain(file_id: str, request: Request):
 
 @app.get("/api/pd/{file_id}/thumbnail")
 async def proxy_pixeldrain_thumb(file_id: str):
+    # 🌟 HLS THUMBNAIL MAGIC TRICK 🌟
+    video = await db.videos.find_one({"pixeldrain_id": file_id, "is_hls": True})
+    if video:
+        # HLS video ke liye sidha Pixeldrain ki photo de do
+        return RedirectResponse(url=f"https://pixeldrain.com/api/file/{file_id}")
+    
+    # --- Purana App wala code ---
     url = f"https://pixeldrain.com/api/file/{file_id}/thumbnail"
     key = PIXELDRAIN_KEYS[0].strip() if PIXELDRAIN_KEYS and PIXELDRAIN_KEYS[0] else ""
     auth = aiohttp.BasicAuth('', key) if key else None
@@ -627,6 +632,7 @@ async def proxy_pixeldrain_thumb(file_id: str):
             content = await resp.read()
             return StreamingResponse(iter([content]), media_type=resp.headers.get("Content-Type", "image/jpeg"))
 
+
 # --- 🚀 CLOUDFLARE BAAHUBALI ROUTE W/ CHUNKING FIX ---
 @app.get("/api/stream/{video_id}")
 async def stream_video(video_id: str, request: Request):
@@ -634,7 +640,14 @@ async def stream_video(video_id: str, request: Request):
     except: raise HTTPException(status_code=400, detail="Invalid ID")
     if not video: raise HTTPException(status_code=404, detail="Not found")
 
+    # 🌟 HLS PLAYLIST MAGIC TRICK 🌟
+    if video.get("is_hls"):
+        # App sochegi mp4 hai, par hum usko chupchap m3u8 playlist de denge!
+        return RedirectResponse(url=f"/api/playlist/{video_id}.m3u8")
+
     fresh_file_id = await get_working_file_id(video)
+    # ... Iske niche aapka purana Cloudflare/Telegram fallback code waise hi rahega
+
 
     # 1. Sabse pehle Cloudflare try karega (<20MB files ke liye Magic)
     if fresh_file_id:
@@ -712,11 +725,20 @@ async def stream_video(video_id: str, request: Request):
 # --- 🚀 HLS MASTERPLAN: PLAYLIST GENERATOR ROUTE ---
 @app.get("/api/playlist/{video_id}.m3u8")
 async def get_hls_playlist(video_id: str):
-    try:
-        # 1. Database se video aur uske chunks nikalo
-        video = await db.videos.find_one({"_id": ObjectId(video_id)})
-    except Exception as e:
-        raise HTTPException(status_code=400, detail="Invalid Video ID")
+    # ... [upar ka code same rahega]
+
+    for chunk in video["chunks"]:
+        file_id = chunk["file_id"]
+        # 🌟 FIX: URL ko exactly worker ke hisaab se set kiya 🌟
+        chunk_url = f"{CF_WORKER_URL}/{file_id}" 
+        
+        m3u8_content.append("#EXTINF:10.0,") 
+        m3u8_content.append(chunk_url)
+
+    m3u8_content.append("#EXT-X-ENDLIST")
+    
+    return StreamingResponse(iter(["\n".join(m3u8_content)]), media_type="application/x-mpegURL")
+
 
     # Agar video nahi mili ya purani normal video hai jisme chunks nahi hain
     if not video or "chunks" not in video:
