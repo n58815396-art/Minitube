@@ -4,66 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="referrer" content="no-referrer">
-    <title>T-Tube Premium</title>
-    
+    <title>T-Tube</title>
+    <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="https://cdn.plyr.io/3.7.8/plyr.css" />
     
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-    <script src="https://cdn.plyr.io/3.7.8/plyr.polyfilled.js"></script>
-
-    <style>
-        :root { 
-            --primary: #ffcc00; /* Asli Gold/Yellow */
-            --primary-glow: rgba(255, 204, 0, 0.6);
-            --bg: #0b0b0b; 
-            --card-bg: #1a1a1a;
-            --text: #ffffff;
-        }
-
-        body { margin: 0; background: var(--bg); color: var(--text); font-family: 'Segoe UI', sans-serif; overflow-x: hidden; }
-
-        /* --- ✨ Header & Glowing Logo --- */
-        header { background: #111; padding: 15px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; position: sticky; top: 0; z-index: 1000; }
-        .logo { font-size: 24px; font-weight: 900; color: #fff; text-transform: uppercase; letter-spacing: 2px; }
-        .logo span { color: var(--primary); text-shadow: 0 0 10px var(--primary-glow); }
-
-        .search-box { display: flex; background: #222; border-radius: 25px; padding: 5px 15px; width: 50%; border: 1px solid #444; }
-        .search-box input { background: transparent; border: none; color: white; width: 100%; outline: none; }
-        .search-box button { background: transparent; border: none; color: var(--primary); cursor: pointer; }
-
-        /* --- 📱 Main Content Area --- */
-        #main-content { padding: 15px; padding-bottom: 100px; display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 15px; }
-
-        /* --- 🎞️ Video Cards (Yellow Glow) --- */
-        .video-card { background: var(--card-bg); border-radius: 12px; overflow: hidden; transition: 0.3s; position: relative; cursor: pointer; border: 1px solid transparent; }
-        .video-card:hover { transform: translateY(-5px); border-color: var(--primary); box-shadow: 0 5px 15px var(--primary-glow); }
-        .thumbnail { width: 100%; aspect-ratio: 16/9; object-fit: cover; }
-        .card-info { padding: 10px; }
-        .v-title { font-size: 14px; font-weight: bold; line-height: 1.4; height: 40px; overflow: hidden; }
-        .v-meta { font-size: 12px; color: #aaa; margin-top: 5px; }
-
-        /* --- 🎬 PREMIUM PLAYER OVERLAY --- */
-        #video-player-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--bg); z-index: 2000; display: none; overflow-y: auto; }
-        #video-player-overlay.active { display: block; }
-        
-        .plyr-container { width: 100%; background: #000; position: sticky; top: 0; z-index: 2100; }
-        .close-overlay { position: absolute; top: 15px; left: 15px; z-index: 2200; background: rgba(0,0,0,0.5); border: none; color: white; padding: 10px; border-radius: 50%; cursor: pointer; }
-
-        /* --- 📱 SHORTS PLAYER OVERLAY (True Swipe) --- */
-        #shorts-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #000; z-index: 3000; display: none; }
-        .shorts-feed { width: 100%; height: 100%; transition: transform 0.4s cubic-bezier(0.25, 1, 0.5, 1); }
-        .short-reel { height: 100vh; width: 100vw; position: relative; }
-        
-        /* --- 🧭 Bottom Nav (Yellow Active) --- */
-        .bottom-nav { position: fixed; bottom: 0; width: 100%; background: #111; display: flex; justify-content: space-around; padding: 10px 0; border-top: 1px solid #333; z-index: 1500; }
-        .nav-item { color: #888; text-align: center; font-size: 11px; cursor: pointer; transition: 0.3s; }
-        .nav-item i { font-size: 20px; display: block; margin-bottom: 3px; }
-        .nav-item.active { color: var(--primary); text-shadow: 0 0 8px var(--primary-glow); }
-
-        .hidden { display: none !important; }
-    </style>
 </head>
 
 <body>
@@ -79,30 +26,61 @@
     <main id="main-content">
         </main>
 
-    <div id="video-player-overlay">
-        <button class="close-overlay" onclick="closePlayer()"><i class="fas fa-arrow-left"></i></button>
-        <div class="plyr-container">
-            <video id="longVideoPlayer" playsinline controls></video>
-        </div>
-        <div style="padding: 15px;">
-            <h2 id="playerVideoTitle" style="margin:0; font-size:20px;"></h2>
-            <p id="playerVideoViews" style="color:#aaa; font-size:14px;"></p>
-            <hr style="border:0; border-top:1px solid #333; margin:20px 0;">
-            <h3 style="color:var(--primary); font-size:16px;">Up Next</h3>
-            <div id="related-videos-container"></div>
-        </div>
+    <div id="shorts-fullscreen-container" class="hidden">
+        <button class="close-shorts-btn" onclick="closeShorts()"><i class="fas fa-arrow-left"></i></button>
+        <div id="shorts-wrapper"></div>
     </div>
 
-    <div id="shorts-overlay">
-        <button class="close-overlay" style="z-index: 4000;" onclick="closeShorts()"><i class="fas fa-arrow-left"></i></button>
-        <div class="shorts-feed" id="shorts-feed"></div>
+    <div id="video-player-overlay" class="hidden">
+        <div class="player-container" id="playerContainer">
+            <video id="longVideoPlayer" playsinline></video>
+            
+            <div id="loadingSpinner" class="spinner hidden"><i class="fas fa-circle-notch fa-spin"></i></div>
+            
+            <div id="rewindIndicator" class="tap-indicator left"><i class="fas fa-backward"></i> 10s</div>
+            <div id="forwardIndicator" class="tap-indicator right"><i class="fas fa-forward"></i> 10s</div>
+
+            <div id="playerControls" class="player-controls">
+                <button class="close-player-btn" onclick="closePlayer()"><i class="fas fa-times"></i></button>
+                
+                <div class="controls-bottom">
+                    <div class="progress-container" id="progressContainer">
+                        <div class="progress-bar-bg"></div>
+                        <div class="progress-bar-buffer" id="bufferBar"></div>
+                        <div class="progress-bar-fill" id="progressBar"></div>
+                    </div>
+                    
+                    <div class="control-actions">
+                        <div class="left-controls">
+                            <button id="playPauseBtn"><i class="fas fa-pause"></i></button>
+                            <span id="timeDisplay">0:00 / 0:00</span>
+                        </div>
+                        <div class="right-controls">
+                            <button id="muteBtn"><i class="fas fa-volume-up"></i></button>
+                            <button id="fullscreenBtn"><i class="fas fa-expand"></i></button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="player-video-details">
+            <h2 id="playerVideoTitle">Video Title</h2>
+            <p id="playerVideoViews">0 views</p>
+        </div>
+
+        <div class="related-section">
+            <h3 class="section-header">Up Next</h3>
+            <div id="related-videos-container"></div>
+        </div>
     </div>
 
     <nav class="bottom-nav">
         <div class="nav-item active" onclick="loadHome()"><i class="fas fa-home"></i><span>Home</span></div>
         <div class="nav-item" onclick="loadNewTab()"><i class="fas fa-clock"></i><span>New</span></div>
-        <div class="nav-item" onclick="loadShortsTab()"><i class="fas fa-sync-alt"></i><span>Scrolls</span></div>
-        <div class="nav-item" id="adminNavBtn" onclick="window.location.href='/admin'"><i class="fas fa-cog"></i><span>Admin</span></div>
+        <div class="nav-item" onclick="loadShortsTab()"><i class="fas fa-sync-alt theme-cyan"></i><span>Scrolls</span></div>
+        <div class="nav-item" onclick="loadCategoriesTab()"><i class="fas fa-th-large"></i><span>Categories</span></div>
+        
+        <div class="nav-item hidden" id="adminNavBtn" onclick="window.location.href='/admin'"><i class="fas fa-cog"></i><span>Admin</span></div>
     </nav>
 
     <script src="script.js"></script>
