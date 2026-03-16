@@ -510,7 +510,7 @@ async def delete_video(video_id: str, admin_id: str = Depends(get_admin)):
 async def create_category(name: str = Form(...), admin_id: str = Depends(get_admin)):
     await db.categories.insert_one({"name": name})
     return {"status": "success"}
-# Termux se aane wale data ka naya structure
+
 class HLSUploadRequest(BaseModel):
     title: str
     admin_id: str
@@ -526,8 +526,8 @@ async def receive_hls_upload(data: HLSUploadRequest):
         "title": data.title,
         "type": "long", 
         "is_hls": True,
-        "pixeldrain_id": data.thumb_id, # 🌟 FIX: Isko pixeldrain_id kardo
-        "thumbnail_id": "", 
+        "pixeldrain_id": data.thumb_id, 
+        "thumbnail_id": data.thumb_id, 
         "category_id": "", 
         "tags": [],
         "chunks": data.chunks,
@@ -569,7 +569,6 @@ async def upload_video(
         raise HTTPException(status_code=500, detail=f"Telegram error: {str(e)}")
     
     file_id = video_msg.video.file_id
-    # Yahan File Size bhi save kar rahe hain taaki chunking asani se ho sake
     file_size = video_msg.video.file_size 
     thumbnail_id = video_msg.video.thumbs[0].file_id if video_msg.video.thumbs else None
     pixeldrain_id = await upload_to_pixeldrain(temp_video)
@@ -632,7 +631,6 @@ async def proxy_pixeldrain_thumb(file_id: str):
             content = await resp.read()
             return StreamingResponse(iter([content]), media_type=resp.headers.get("Content-Type", "image/jpeg"))
 
-
 # --- 🚀 CLOUDFLARE BAAHUBALI ROUTE W/ CHUNKING FIX ---
 @app.get("/api/stream/{video_id}")
 async def stream_video(video_id: str, request: Request):
@@ -642,12 +640,9 @@ async def stream_video(video_id: str, request: Request):
 
     # 🌟 HLS PLAYLIST MAGIC TRICK 🌟
     if video.get("is_hls"):
-        # App sochegi mp4 hai, par hum usko chupchap m3u8 playlist de denge!
         return RedirectResponse(url=f"/api/playlist/{video_id}.m3u8")
 
     fresh_file_id = await get_working_file_id(video)
-    # ... Iske niche aapka purana Cloudflare/Telegram fallback code waise hi rahega
-
 
     # 1. Sabse pehle Cloudflare try karega (<20MB files ke liye Magic)
     if fresh_file_id:
@@ -669,8 +664,6 @@ async def stream_video(video_id: str, request: Request):
 
     # 3. Last Option (Pyrogram Stream With Range Requests/Chunking)
     file_size = video.get("file_size")
-    
-    # Agar purani video hai jisme file_size save nahi hua, toh telegram se pata karo
     if not file_size and video.get("message_id"):
         try:
             msg = await tg_client.get_messages(int(CHAT_ID), int(video["message_id"]))
@@ -681,93 +674,64 @@ async def stream_video(video_id: str, request: Request):
             print(f"Could not fetch file size: {e}")
 
     range_header = request.headers.get("Range")
-    
     if range_header and file_size:
-        # Browser se pucha gaya hissa nikalna
         start, end = range_header.replace("bytes=", "").split("-")
         start = int(start) if start else 0
         end = int(end) if end else file_size - 1
         end = min(end, file_size - 1)
         chunk_size = end - start + 1
-        
         headers = {
             "Content-Range": f"bytes {start}-{end}/{file_size}",
             "Accept-Ranges": "bytes",
             "Content-Length": str(chunk_size),
             "Content-Type": "video/mp4",
         }
-        
         async def telegram_stream_chunked():
             try:
-                # Pyrogram limit aur offset use karke exactly chunk stream karega
                 async for chunk in tg_client.stream_media(fresh_file_id, limit=chunk_size, offset=start):
                     yield chunk
             except Exception as e:
                 print(f"[Telegram Chunked Stream] Error: {e}")
-                
         return StreamingResponse(telegram_stream_chunked(), status_code=206, headers=headers)
-        
     else:
-        # Agar browser poori video ek sath mange (rarely happens now)
         headers = {"Accept-Ranges": "bytes", "Content-Type": "video/mp4"}
         if file_size: headers["Content-Length"] = str(file_size)
-            
         async def telegram_stream_full():
             try:
                 async for chunk in tg_client.stream_media(fresh_file_id): 
                     yield chunk
             except Exception as e: 
                 print(f"[Telegram Full Stream] Error: {e}")
-
         return StreamingResponse(telegram_stream_full(), headers=headers)
-
 
 # --- 🚀 HLS MASTERPLAN: PLAYLIST GENERATOR ROUTE ---
 @app.get("/api/playlist/{video_id}.m3u8")
 async def get_hls_playlist(video_id: str):
-    # ... [upar ka code same rahega]
+    try:
+        video = await db.videos.find_one({"_id": ObjectId(video_id)})
+    except Exception as e:
+        raise HTTPException(status_code=400, detail="Invalid Video ID")
+
+    if not video or "chunks" not in video:
+        raise HTTPException(status_code=404, detail="HLS Playlist not found for this video")
+
+    m3u8_content = [
+        "#EXTM3U",
+        "#EXT-X-VERSION:3",
+        "#EXT-X-TARGETDURATION:15", 
+        "#EXT-X-MEDIA-SEQUENCE:0",
+        "#EXT-X-PLAYLIST-TYPE:VOD"
+    ]
 
     for chunk in video["chunks"]:
         file_id = chunk["file_id"]
-        # 🌟 FIX: URL ko exactly worker ke hisaab se set kiya 🌟
-        chunk_url = f"{CF_WORKER_URL}/{file_id}" 
-        
+        chunk_url = f"{CF_WORKER_URL}/{file_id}"
         m3u8_content.append("#EXTINF:10.0,") 
         m3u8_content.append(chunk_url)
 
     m3u8_content.append("#EXT-X-ENDLIST")
     
-    return StreamingResponse(iter(["\n".join(m3u8_content)]), media_type="application/x-mpegURL")
-
-
-    # Agar video nahi mili ya purani normal video hai jisme chunks nahi hain
-    if not video or "chunks" not in video:
-        raise HTTPException(status_code=404, detail="HLS Playlist not found for this video")
-
-    # 2. HLS Playlist ka format (Header) taiyar karo
-    m3u8_content = [
-        "#EXTM3U",
-        "#EXT-X-VERSION:3",
-        "#EXT-X-TARGETDURATION:15", # Max chunk time
-        "#EXT-X-MEDIA-SEQUENCE:0",
-        "#EXT-X-PLAYLIST-TYPE:VOD"
-    ]
-
-    # 3. Har chunk ko Cloudflare Worker ke link ke sath jod do
-    for chunk in video["chunks"]:
-        file_id = chunk["file_id"]
-        
-        # Yeh link seedha aapke Cloudflare Worker ko hit karega
-        chunk_url = f"{CF_WORKER_URL}/stream_chunk/{file_id}"
-        
-        m3u8_content.append("#EXTINF:10.0,") # Har tukda lagbhag 10 sec ka hai
-        m3u8_content.append(chunk_url)
-
-    m3u8_content.append("#EXT-X-ENDLIST")
-    
-    # 4. Saari lines ko jod kar ek text file ki tarah return karo
     playlist_text = "\n".join(m3u8_content)
-
     return StreamingResponse(
         iter([playlist_text]),
         media_type="application/x-mpegURL"
