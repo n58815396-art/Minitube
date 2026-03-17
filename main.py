@@ -4,6 +4,7 @@ import hmac
 import hashlib
 import json
 import uuid
+import random
 from datetime import datetime, timedelta
 from typing import Optional, List
 from urllib.parse import parse_qs
@@ -150,7 +151,7 @@ ADMIN_HTML = """
         ::-webkit-scrollbar-track { background: #0f0f0f; }
         ::-webkit-scrollbar-thumb { background: #333; border-radius: 10px; }
         ::-webkit-scrollbar-thumb:hover { background: #00d2ff; }
-        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .header { display: flex; justify-content: flex-start; align-items: center; gap: 14px; margin-bottom: 20px; }
         .card { background: #222; padding: 20px; border-radius: 10px; margin-bottom: 20px; }
         label { display: block; margin-top: 15px; margin-bottom: 5px; font-size: 13px; color: #aaa; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; }
         input, select, button { width: 100%; padding: 12px; margin: 5px 0 15px 0; border-radius: 6px; border: 1px solid #444; background: #333; color: white; outline: none; }
@@ -158,7 +159,7 @@ ADMIN_HTML = """
         input.error-input, select.error-input { border-color: #ff4444 !important; background: rgba(255, 68, 68, 0.05); }
         button { background: #00d2ff; color: #000; font-weight: bold; border: none; cursor: pointer; transition: 0.2s; }
         button:hover { background: #00b8e6; }
-        .back-btn { width: auto; padding: 8px 15px; margin: 0; background: #444; color: white; }
+        .back-btn { width: 40px; height: 40px; padding: 0; margin: 0; background: #333; color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 17px; flex-shrink: 0; border: 1px solid #555; }
         .nav-buttons { display: flex; gap: 10px; margin-bottom: 20px; }
         .nav-btn { flex: 1; padding: 12px; border-radius: 8px; border: none; background: #333; color: white; cursor: pointer; font-weight: bold; }
         .nav-btn.active { background: #00d2ff; color: #000; }
@@ -191,7 +192,7 @@ ADMIN_HTML = """
     </style>
 </head>
 <body>
-    <div class="header"><h2>🛠️ T-Tube Admin</h2><button class="back-btn" onclick="window.location.href='/'">← Back to Home</button></div>
+    <div class="header"><button class="back-btn" onclick="window.location.href='/'" title="Back to Home"><i class="fas fa-arrow-left"></i></button><h2>🛠️ T-Tube Admin</h2></div>
     <div id="status">Verifying Admin...</div>
     <div id="admin-controls" style="display:none;">
         <div class="nav-buttons">
@@ -644,8 +645,8 @@ async def proxy_pixeldrain_thumb(file_id: str):
     # 2. Railway khud photo layega aur App ko dega (Bina kisi jhatake ke)
     async with aiohttp.ClientSession() as session:
         async with session.get(url, auth=auth) as resp:
-            if resp.status != 200: 
-                return FileResponse("static/placeholder.jpg")
+            if resp.status != 200:
+                return RedirectResponse(url="https://via.placeholder.com/320x180?text=No+Thumbnail", status_code=302)
             content = await resp.read()
             return StreamingResponse(iter([content]), media_type=resp.headers.get("Content-Type", "image/jpeg"))
 
@@ -740,6 +741,128 @@ async def stream_video(video_id: str, request: Request):
             except Exception as e: 
                 print(f"[Telegram Full Stream] Error: {e}")
         return StreamingResponse(telegram_stream_full(), headers=headers)
+
+
+# --- Helper: Build 40/30/30 ratio playlist ---
+def build_ratio_playlist(similar_pool, new_pool, trending_pool, total=10, exclude_ids=None):
+    if exclude_ids is None:
+        exclude_ids = set()
+    n_sim   = round(total * 0.4)
+    n_new   = round(total * 0.3)
+    n_trend = total - n_sim - n_new
+    seen = set(str(e) for e in exclude_ids)
+    result = []
+
+    def pick_n(pool, n):
+        count = 0
+        for v in pool:
+            if count >= n:
+                break
+            vid_id = str(v.get("_id", ""))
+            if vid_id not in seen:
+                result.append(v)
+                seen.add(vid_id)
+                count += 1
+
+    shuffled_sim = list(similar_pool)
+    random.shuffle(shuffled_sim)
+    pick_n(shuffled_sim, n_sim)
+    pick_n(list(new_pool), n_new)
+    pick_n(list(trending_pool), n_trend)
+
+    # Fill remaining if pools insufficient
+    if len(result) < total:
+        all_fallback = list(similar_pool) + list(new_pool) + list(trending_pool)
+        random.shuffle(all_fallback)
+        for v in all_fallback:
+            if len(result) >= total:
+                break
+            vid_id = str(v.get("_id", ""))
+            if vid_id not in seen:
+                result.append(v)
+                seen.add(vid_id)
+
+    random.shuffle(result)
+    return result[:total]
+
+
+# --- Smart Shorts Playlist (40/30/30) ---
+@app.get("/api/shorts/playlist")
+async def get_shorts_playlist(watched_ids: str = "", limit: int = 10, user_id: str = Depends(get_user_id)):
+    watched_list = [w.strip() for w in watched_ids.split(",") if w.strip()]
+    exclude_set  = set(watched_list)
+    now          = datetime.utcnow()
+    seven_ago    = now - timedelta(days=7)
+
+    all_shorts = []
+    async for s in db.videos.find({"type": "short"}).sort("created_at", -1):
+        s["_id"] = str(s["_id"])
+        all_shorts.append(s)
+
+    recent_watched = set(watched_list[-5:])
+    watched_cats, watched_tags = set(), set()
+    for s in all_shorts:
+        if s["_id"] in recent_watched:
+            watched_cats.add(s.get("category_id", ""))
+            watched_tags.update(s.get("tags", []))
+
+    available = [s for s in all_shorts if s["_id"] not in exclude_set]
+    similar   = [s for s in available if s.get("category_id") in watched_cats or any(t in watched_tags for t in s.get("tags", []))]
+    new_pool  = [s for s in available if s.get("created_at") and s["created_at"] > seven_ago]
+    trending  = sorted(available, key=lambda x: x.get("view_count", 0), reverse=True)
+
+    playlist = build_ratio_playlist(similar, new_pool, trending, total=limit, exclude_ids=exclude_set)
+
+    # If still short, fill with random unwatched
+    seen_ids = {v["_id"] for v in playlist}
+    remaining = [s for s in all_shorts if s["_id"] not in seen_ids and s["_id"] not in exclude_set]
+    random.shuffle(remaining)
+    for s in remaining:
+        if len(playlist) >= limit:
+            break
+        playlist.append(s)
+
+    return playlist[:limit]
+
+
+# --- Related Videos (40/30/30) ---
+@app.get("/api/videos/related/{video_id}")
+async def get_related_videos(video_id: str, user_id: str = Depends(get_user_id)):
+    try:
+        video = await db.videos.find_one({"_id": ObjectId(video_id)})
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid ID")
+    if not video:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    video_tags = video.get("tags", [])
+    video_cat  = video.get("category_id", "")
+    exclude_id = str(video["_id"])
+    now        = datetime.utcnow()
+    seven_ago  = now - timedelta(days=7)
+
+    all_vids = []
+    async for v in db.videos.find({"type": {"$in": ["long", "hls_movie"]}}):
+        v["_id"] = str(v["_id"])
+        if v["_id"] != exclude_id:
+            all_vids.append(v)
+
+    similar  = [v for v in all_vids if v.get("category_id") == video_cat or any(t in video_tags for t in v.get("tags", []))]
+    new_pool = [v for v in all_vids if v.get("created_at") and v["created_at"] > seven_ago]
+    trending = sorted(all_vids, key=lambda x: x.get("view_count", 0), reverse=True)
+
+    result = build_ratio_playlist(similar, new_pool, trending, total=20, exclude_ids={exclude_id})
+
+    # Fill remaining
+    seen_ids = {v["_id"] for v in result}
+    for v in all_vids:
+        if len(result) >= 20:
+            break
+        if v["_id"] not in seen_ids:
+            result.append(v)
+
+    return result[:20]
+
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
