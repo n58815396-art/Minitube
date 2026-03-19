@@ -173,7 +173,8 @@ function nextShortsBatch() {
 function nextLongsBatch() {
     if (homeLongs.length === 0) return [];
     const items = [];
-    for (let j = 0; j < LONGS_BLOCK; j++) {
+    const count = Math.min(LONGS_BLOCK, homeLongs.length);
+    for (let j = 0; j < count; j++) {
         if (homeLongsPtr >= homeLongs.length) {
             homeLongs = shuffleArray([...longVideos]);
             homeLongsPtr = 0;
@@ -286,9 +287,20 @@ async function loadCategoriesTab() {
     mainContent.innerHTML = `<div class="section-loader"><i class="fas fa-circle-notch fa-spin"></i></div>`;
     try {
         const cats = await (await fetch(`${API_BASE}/categories`)).json();
+        const allV = await (await fetch(`${API_BASE}/videos`)).json(); 
+        
+        // Update global state with fresh data
+        allV.forEach(v => {
+            if (!allVideos.find(a => a._id === v._id)) {
+                allVideos.push(v);
+                if (v.type === "short") shortsVideos.push(v);
+                else longVideos.push(v);
+            }
+        });
+
         mainContent.innerHTML = "";
         for (const cat of cats) {
-            const catVideos = allVideos.filter(v => v.category_id === cat._id);
+            const catVideos = allV.filter(v => v.category_id === cat._id);
             if (catVideos.length === 0) continue;
             const sec = document.createElement("div");
             sec.className = "category-section";
@@ -298,7 +310,7 @@ async function loadCategoriesTab() {
                     <span class="view-all" onclick="viewAllCategory('${cat._id}', '${cat.name}')">View All</span>
                 </div>
                 <div class="category-horizontal-scroll">
-                    ${catVideos.slice(0, 5).map(v => `
+                    ${catVideos.slice(0, 8).map(v => `
                         <div class="category-video-card" onclick="${v.type !== 'short' ? `openLongPlayer('${v._id}')` : `openShortsPlayer('${v._id}')`}">
                             <div class="thumbnail-container"><img loading="lazy" src="${THUMB_CDN_URL}${v._id}.jpg" onerror="this.src='https://via.placeholder.com/320x180'"></div>
                             <div class="video-info"><h3 style="font-size:12px;">${v.title}</h3></div>
@@ -309,35 +321,73 @@ async function loadCategoriesTab() {
     } catch(e) { mainContent.innerHTML = "<div style='text-align:center;padding:30px;'>Error loading categories</div>"; }
 }
 
-function viewAllCategory(catId, catName) {
+async function viewAllCategory(catId, catName) {
     if (homeObserver) homeObserver.disconnect();
-    mainContent.innerHTML = `<h2 class="section-header" style="padding:15px;"><i class="fas fa-arrow-left" onclick="loadCategoriesTab()" style="cursor:pointer;margin-right:8px;"></i>${catName}</h2>`;
-    allVideos.filter(v => v.category_id === catId).forEach(v => {
-        const isShort = v.type === 'short';
-        const card = document.createElement("div");
-        card.className = "video-card";
-        card.onclick   = () => isShort ? openShortsPlayer(v._id) : openLongPlayer(v._id);
-        card.innerHTML = `
-            <img loading="lazy" class="thumbnail" src="${THUMB_CDN_URL}${v._id}.jpg" onerror="this.src='https://via.placeholder.com/640x360'">
-            <div class="card-info">
-                <div class="v-title">${v.title}</div>
-                <div class="v-meta">${v.view_count || 0} views • ${isShort ? 'Short' : 'Video'}</div>
-            </div>`;
-        mainContent.appendChild(card);
-    });
+    window.scrollTo(0, 0); // FIX: Reset scroll on sub-navigation
+    mainContent.innerHTML = `<div class="section-loader"><i class="fas fa-circle-notch fa-spin"></i></div>`;
+    
+    try {
+        const res = await fetch(`${API_BASE}/videos?category_id=${catId}`);
+        const results = await res.json();
+        
+        // Update global state
+        results.forEach(v => {
+            if (!allVideos.find(a => a._id === v._id)) {
+                allVideos.push(v);
+                if (v.type === "short") shortsVideos.push(v);
+                else longVideos.push(v);
+            }
+        });
+
+        mainContent.innerHTML = `<h2 class="section-header" style="padding:15px;"><i class="fas fa-arrow-left" onclick="loadCategoriesTab()" style="cursor:pointer;margin-right:8px;"></i>${catName}</h2>`;
+        if (results.length === 0) {
+            mainContent.innerHTML += `<div class="empty-state"><i class="fas fa-play"></i><p>No videos in this category</p></div>`;
+        } else {
+            results.forEach(v => {
+                const isShort = v.type === 'short';
+                const card = document.createElement("div");
+                card.className = "video-card";
+                card.onclick   = () => isShort ? openShortsPlayer(v._id) : openLongPlayer(v._id);
+                card.innerHTML = `
+                    <img loading="lazy" class="thumbnail" src="${THUMB_CDN_URL}${v._id}.jpg" onerror="this.src='https://via.placeholder.com/640x360'">
+                    <div class="card-info">
+                        <div class="v-title">${v.title}</div>
+                        <div class="v-meta">${v.view_count || 0} views • ${isShort ? 'Short' : 'Video'}</div>
+                    </div>`;
+                mainContent.appendChild(card);
+            });
+        }
+    } catch(e) { mainContent.innerHTML = "<div style='text-align:center;padding:30px;'>Error loading videos</div>"; }
 }
 
 /* =========================================
    6. SEARCH
 ========================================= */
+let searchAbortController = null;
+
 async function searchVideos() {
     const query = document.getElementById("searchInput").value.trim();
     if (!query) { loadHome(); return; }
     if (homeObserver) homeObserver.disconnect();
+    
+    if (searchAbortController) searchAbortController.abort();
+    searchAbortController = new AbortController();
+    
     setActiveNav(-1);
     mainContent.innerHTML = `<div class="section-loader"><i class="fas fa-circle-notch fa-spin"></i><span style="font-size:14px;">Searching…</span></div>`;
     try {
-        const results = await (await fetch(`${API_BASE}/videos/search?q=${encodeURIComponent(query)}`)).json();
+        const res = await fetch(`${API_BASE}/videos/search?q=${encodeURIComponent(query)}`, { signal: searchAbortController.signal });
+        const results = await res.json();
+        
+        // FIX: Add to global state
+        results.forEach(v => {
+            if (!allVideos.find(a => a._id === v._id)) {
+                allVideos.push(v);
+                if (v.type === "short") shortsVideos.push(v);
+                else longVideos.push(v);
+            }
+        });
+
         mainContent.innerHTML = `<h2 class="section-header" style="padding:15px;"><i class="fas fa-search"></i> "${query}"</h2>`;
         if (results.length === 0) {
             mainContent.innerHTML += `<div class="empty-state"><i class="fas fa-search"></i><p>No videos found</p><span>Try a different keyword</span></div>`;
@@ -356,12 +406,14 @@ async function searchVideos() {
                 mainContent.appendChild(card);
             });
         }
-    } catch(e) { mainContent.innerHTML = "<div style='text-align:center;padding:30px;'>Search failed.</div>"; }
+    } catch(e) { 
+        if (e.name !== 'AbortError') mainContent.innerHTML = "<div style='text-align:center;padding:30px;'>Search failed.</div>"; 
+    }
 }
 
 function setActiveNav(index) {
     bottomNavItems.forEach((item, i) => item.classList.toggle("active", i === index));
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    window.scrollTo({ top: 0, behavior: 'auto' });
 }
 
 /* =========================================
@@ -421,6 +473,7 @@ function openLongPlayer(videoId) {
         });
         hlsPlayer.on(Hls.Events.ERROR, (_, data) => {
             if (data.fatal && videoEl) { 
+                hlsPlayer.destroy(); // Fix: Destroy broken instance
                 videoEl.src = `${API_BASE}/stream/${videoId}`; 
                 videoEl.play().catch(() => {}); 
             }
@@ -448,9 +501,9 @@ function setupPlayerSpinner(videoEl) {
     const spinner = document.getElementById("player-spinner");
     if (!spinner) return;
     spinner.classList.add("hidden");
-    videoEl.addEventListener("waiting",  () => spinner.classList.remove("hidden"), { once: false });
-    videoEl.addEventListener("playing",  () => spinner.classList.add("hidden"),    { once: false });
-    videoEl.addEventListener("canplay",  () => spinner.classList.add("hidden"),    { once: false });
+    videoEl.onwaiting = () => spinner.classList.remove("hidden");
+    videoEl.onplaying = () => spinner.classList.add("hidden");
+    videoEl.oncanplay = () => spinner.classList.add("hidden");
 }
 
 function setupPlayerDoubleTap() {
@@ -469,6 +522,7 @@ function setupPlayerDoubleTap() {
 
         const now = Date.now();
         if (now - playerLastTapTime < 280) {
+            e.preventDefault(); // FIX: Prevent Plyr play/pause on seek tap
             // Double tap — seek
             const x     = e.changedTouches[0].clientX;
             const width = container.offsetWidth;
@@ -486,7 +540,7 @@ function setupPlayerDoubleTap() {
         } else {
             playerLastTapTime = now;
         }
-    }, { passive: true, signal });
+    }, { passive: false, signal }); // FIX: passive false for preventDefault
 }
 
 function showSeekFeedback(dir) {
@@ -499,12 +553,21 @@ function showSeekFeedback(dir) {
 }
 
 function closePlayer() {
+    if (playerAbortController) {
+        playerAbortController.abort();
+        playerAbortController = null;
+    }
     videoOverlay.classList.add("hidden");
     videoOverlay.classList.remove("active");
     if (plyrPlayer) { try { plyrPlayer.destroy(); } catch(e) {} plyrPlayer = null; }
     if (hlsPlayer)  { try { hlsPlayer.destroy();  } catch(e) {} hlsPlayer  = null; }
     const videoEl = document.getElementById("longVideoPlayer");
-    videoEl.src = ""; videoEl.load();
+    if (videoEl) {
+        videoEl.pause();
+        videoEl.removeAttribute("src"); // FIX: iOS memory leak cleanup
+        videoEl.src = ""; 
+        videoEl.load();
+    }
     const spinner = document.getElementById("player-spinner");
     if (spinner) spinner.classList.add("hidden");
     // Remove touch listeners
@@ -720,8 +783,6 @@ function snapToShort(idx, animate = true) {
                 const url = `${CF_BASE}${v._id}.m3u8`;
                 if (Hls.isSupported()) {
                     const h = new Hls({ startLevel: -1, autoLevelEnabled: true });
-                    h.loadSource(url);
-                    h.attachMedia(vid);
                     shortsHlsMap[i] = h;
                     h.on(Hls.Events.MANIFEST_PARSED, () => {
                         vid.play().catch(() => {});
@@ -732,6 +793,8 @@ function snapToShort(idx, animate = true) {
                             vid.play().catch(() => {});
                         }
                     });
+                    h.loadSource(url);
+                    h.attachMedia(vid);
                 } else if (vid.canPlayType('application/vnd.apple.mpegurl')) {
                     vid.src = url;
                     vid.play().catch(() => {});
@@ -743,13 +806,17 @@ function snapToShort(idx, animate = true) {
                 vid.play().catch(() => {});
             }
             vid.muted = globalMuted;
+            updateShortProgress(vid, i); // FIX: Enable Shorts progress bar
 
             const hint = document.getElementById(`mute-hint-${i}`);
             if (hint) hint.style.display = globalMuted ? 'flex' : 'none';
 
-            if (!watchedShortIds.includes(v._id)) watchedShortIds.push(v._id);
-            const initData = window.Telegram?.WebApp?.initData || "";
-            fetch(`${API_BASE}/views/${v._id}`, { method: 'POST', headers: { 'x-telegram-init-data': initData } }).catch(() => {});
+            // FIX: Prevent view count spam on rapid scroll
+            if (!watchedShortIds.includes(v._id)) {
+                watchedShortIds.push(v._id);
+                const initData = window.Telegram?.WebApp?.initData || "";
+                fetch(`${API_BASE}/views/${v._id}`, { method: 'POST', headers: { 'x-telegram-init-data': initData } }).catch(() => {});
+            }
 
             // Preload next
             if (i + 1 < currentPlaylist.length) {
@@ -773,6 +840,7 @@ function snapToShort(idx, animate = true) {
                     try { shortsHlsMap[i].destroy(); } catch(e) {}
                     delete shortsHlsMap[i];
                 }
+                vid.removeAttribute('src'); // FIX: CRITICAL FOR iOS
                 vid.src = "";
                 vid.load(); // Free memory
             }
@@ -792,7 +860,12 @@ function handleShortTap() {
     const vid  = document.getElementById(`short-vid-${currentShortIdx}`);
     if (vid) vid.muted = globalMuted;
     const hint = document.getElementById(`mute-hint-${currentShortIdx}`);
-    if (hint) hint.style.display = globalMuted ? 'flex' : 'none';
+    if (hint) {
+        hint.style.animation = 'none';
+        hint.style.display = globalMuted ? 'flex' : 'none';
+        void hint.offsetWidth; // Force Reflow
+        hint.style.animation = 'fadeHint 2s ease forwards';
+    }
 }
 
 function handleShortDoubleTap() {
@@ -808,7 +881,12 @@ function closeShorts() {
     shortsHlsMap = {};
     currentPlaylist.forEach((_, i) => {
         const vid = document.getElementById(`short-vid-${i}`);
-        if (vid) { vid.pause(); vid.src = ""; }
+        if (vid) { 
+            vid.pause(); 
+            vid.removeAttribute('src'); // FIX: Ensure full memory cleanup on close
+            vid.src = ""; 
+            vid.load();
+        }
     });
     shortsFeed.innerHTML = "";
     currentPlaylist = [];

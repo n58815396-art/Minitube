@@ -98,7 +98,7 @@ main { padding: 0 0 80px; }
     z-index: 2010;
     aspect-ratio: 16/9;
     overflow: hidden;
-    touch-action: none; /* FIX: prevent mobile zoom on double-tap */
+    touch-action: manipulation; /* FIX: allow vertical scroll, prevent zoom */
 }
 
 /* Buffering spinner */
