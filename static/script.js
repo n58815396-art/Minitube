@@ -37,6 +37,7 @@ let lastTapTime     = 0;
 
 // Player seek state
 let playerLastTapTime = 0;
+let playerAbortController = null;
 
 // DOM refs
 const mainContent   = document.getElementById("main-content");
@@ -48,10 +49,23 @@ const shortsFeed    = document.getElementById("shorts-wrapper");
 /* =========================================
    1. INIT
 ========================================= */
+let searchTimeout = null;
+
 window.addEventListener("DOMContentLoaded", async () => {
     const searchInput = document.getElementById("searchInput");
     if (searchInput) {
-        searchInput.addEventListener("keypress", e => { if (e.key === "Enter") searchVideos(); });
+        searchInput.addEventListener("input", () => {
+            if (searchTimeout) clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => {
+                searchVideos();
+            }, 300);
+        });
+        searchInput.addEventListener("keypress", e => { 
+            if (e.key === "Enter") {
+                if (searchTimeout) clearTimeout(searchTimeout);
+                searchVideos(); 
+            }
+        });
     }
 
     window.addEventListener("keydown", e => {
@@ -182,7 +196,7 @@ function renderHomeBlocks(numBlocks) {
                     <div class="shorts-grid">
                         ${shorts.map(s => `
                             <div class="short-card-home" onclick="openShortsPlayer('${s._id}')">
-                                <img src="${THUMB_CDN_URL}${s._id}.jpg"
+                                <img loading="lazy" src="${THUMB_CDN_URL}${s._id}.jpg"
                                     onerror="this.src='https://via.placeholder.com/200x350'">
                                 <div class="title">${s.title}</div>
                             </div>`).join('')}
@@ -199,7 +213,7 @@ function renderHomeBlocks(numBlocks) {
                 card.className = "video-card";
                 card.onclick   = () => openLongPlayer(v._id);
                 card.innerHTML = `
-                    <img class="thumbnail" src="${THUMB_CDN_URL}${v._id}.jpg"
+                    <img loading="lazy" class="thumbnail" src="${THUMB_CDN_URL}${v._id}.jpg"
                         onerror="this.src='https://via.placeholder.com/640x360'">
                     <div class="card-info">
                         <div class="v-title">${v.title}</div>
@@ -248,7 +262,7 @@ function loadTrendingTab() {
         card.className = "video-card";
         card.onclick   = () => openLongPlayer(v._id);
         card.innerHTML = `
-            <img class="thumbnail" src="${THUMB_CDN_URL}${v._id}.jpg"
+            <img loading="lazy" class="thumbnail" src="${THUMB_CDN_URL}${v._id}.jpg"
                 onerror="this.src='https://via.placeholder.com/640x360'">
             <div class="card-info">
                 <div class="v-title">${v.title}</div>
@@ -286,7 +300,7 @@ async function loadCategoriesTab() {
                 <div class="category-horizontal-scroll">
                     ${catVideos.slice(0, 5).map(v => `
                         <div class="category-video-card" onclick="${v.type !== 'short' ? `openLongPlayer('${v._id}')` : `openShortsPlayer('${v._id}')`}">
-                            <div class="thumbnail-container"><img src="${THUMB_CDN_URL}${v._id}.jpg" onerror="this.src='https://via.placeholder.com/320x180'"></div>
+                            <div class="thumbnail-container"><img loading="lazy" src="${THUMB_CDN_URL}${v._id}.jpg" onerror="this.src='https://via.placeholder.com/320x180'"></div>
                             <div class="video-info"><h3 style="font-size:12px;">${v.title}</h3></div>
                         </div>`).join('')}
                 </div>`;
@@ -304,7 +318,7 @@ function viewAllCategory(catId, catName) {
         card.className = "video-card";
         card.onclick   = () => isShort ? openShortsPlayer(v._id) : openLongPlayer(v._id);
         card.innerHTML = `
-            <img class="thumbnail" src="${THUMB_CDN_URL}${v._id}.jpg" onerror="this.src='https://via.placeholder.com/640x360'">
+            <img loading="lazy" class="thumbnail" src="${THUMB_CDN_URL}${v._id}.jpg" onerror="this.src='https://via.placeholder.com/640x360'">
             <div class="card-info">
                 <div class="v-title">${v.title}</div>
                 <div class="v-meta">${v.view_count || 0} views • ${isShort ? 'Short' : 'Video'}</div>
@@ -334,7 +348,7 @@ async function searchVideos() {
                 card.className = "video-card";
                 card.onclick   = () => isShort ? openShortsPlayer(v._id) : openLongPlayer(v._id);
                 card.innerHTML = `
-                    <img class="thumbnail" src="${THUMB_CDN_URL}${v._id}.jpg" onerror="this.src='https://via.placeholder.com/640x360'">
+                    <img loading="lazy" class="thumbnail" src="${THUMB_CDN_URL}${v._id}.jpg" onerror="this.src='https://via.placeholder.com/640x360'">
                     <div class="card-info">
                         <div class="v-title">${v.title}</div>
                         <div class="v-meta">${v.view_count || 0} views • ${isShort ? 'Short' : 'Video'}</div>
@@ -347,6 +361,7 @@ async function searchVideos() {
 
 function setActiveNav(index) {
     bottomNavItems.forEach((item, i) => item.classList.toggle("active", i === index));
+    window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 /* =========================================
@@ -363,15 +378,30 @@ function openLongPlayer(videoId) {
     document.getElementById("playerVideoTitle").innerText = vData.title;
     document.getElementById("playerVideoViews").innerText = (vData.view_count || 0) + " views";
 
-    const videoEl = document.getElementById("longVideoPlayer");
-    const hlsUrl  = `${CF_BASE}${videoId}.m3u8`;
-
-    // Destroy old instances
+    // Destroy old instances BEFORE re-querying
     if (plyrPlayer) { try { plyrPlayer.destroy(); } catch(e) {} plyrPlayer = null; }
     if (hlsPlayer)  { try { hlsPlayer.destroy();  } catch(e) {} hlsPlayer  = null; }
-    videoEl.src = ""; videoEl.load();
 
-    // Init Plyr — no rewind/fast-forward (we use double-tap), no volume slider (only mute)
+    // Re-query the video element from DOM because Plyr might have replaced it
+    let videoEl = document.getElementById("longVideoPlayer");
+    if (!videoEl) {
+        // Recovery: if Plyr destroyed the node and it's missing, we need to ensure it exists
+        const container = document.getElementById("playerContainer");
+        const oldBackBtn = container.querySelector(".player-back-btn");
+        container.innerHTML = "";
+        if (oldBackBtn) container.appendChild(oldBackBtn);
+        videoEl = document.createElement("video");
+        videoEl.id = "longVideoPlayer";
+        videoEl.setAttribute("playsinline", "");
+        container.appendChild(videoEl);
+    }
+
+    videoEl.src = "";
+    videoEl.load();
+
+    const hlsUrl = `${CF_BASE}${videoId}.m3u8`;
+
+    // Init Plyr
     if (typeof Plyr !== "undefined") {
         plyrPlayer = new Plyr(videoEl, {
             controls: ['play-large', 'play', 'progress', 'current-time', 'duration', 'mute', 'settings', 'fullscreen'],
@@ -386,24 +416,31 @@ function openLongPlayer(videoId) {
         hlsPlayer = new Hls({ startLevel: -1, autoLevelEnabled: true });
         hlsPlayer.loadSource(hlsUrl);
         hlsPlayer.attachMedia(videoEl);
-        hlsPlayer.on(Hls.Events.MANIFEST_PARSED, () => videoEl.play().catch(() => {}));
+        hlsPlayer.on(Hls.Events.MANIFEST_PARSED, () => {
+            if (videoEl) videoEl.play().catch(() => {});
+        });
         hlsPlayer.on(Hls.Events.ERROR, (_, data) => {
-            if (data.fatal) { videoEl.src = `${API_BASE}/stream/${videoId}`; videoEl.play().catch(() => {}); }
+            if (data.fatal && videoEl) { 
+                videoEl.src = `${API_BASE}/stream/${videoId}`; 
+                videoEl.play().catch(() => {}); 
+            }
         });
     } else if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
-        videoEl.src = hlsUrl; videoEl.play().catch(() => {});
+        videoEl.src = hlsUrl;
+        videoEl.play().catch(() => {});
     } else {
-        videoEl.src = `${API_BASE}/stream/${videoId}`; videoEl.play().catch(() => {});
+        videoEl.src = `${API_BASE}/stream/${videoId}`;
+        videoEl.play().catch(() => {});
     }
 
     // Buffering spinner
     setupPlayerSpinner(videoEl);
 
-    // Double-tap seek (left = -10s, right = +10s)
+    // Double-tap seek
     setupPlayerDoubleTap();
 
     const initData = window.Telegram?.WebApp?.initData || "";
-    fetch(`${API_BASE}/views/${videoId}`, { method: 'POST', headers: { 'x-telegram-init-data': initData } });
+    fetch(`${API_BASE}/views/${videoId}`, { method: 'POST', headers: { 'x-telegram-init-data': initData } }).catch(() => {});
     loadRelatedVideos(videoId, vData);
 }
 
@@ -420,8 +457,11 @@ function setupPlayerDoubleTap() {
     const container = document.getElementById("playerContainer");
     if (!container) return;
 
-    // Remove previous listener by replacing the element clone trick (simpler: use a flag)
-    container.ontouchend = null;
+    if (playerAbortController) {
+        playerAbortController.abort();
+    }
+    playerAbortController = new AbortController();
+    const { signal } = playerAbortController;
 
     container.addEventListener("touchend", e => {
         // Ignore if it's on the back button
@@ -446,7 +486,7 @@ function setupPlayerDoubleTap() {
         } else {
             playerLastTapTime = now;
         }
-    }, { passive: true });
+    }, { passive: true, signal });
 }
 
 function showSeekFeedback(dir) {
@@ -488,7 +528,7 @@ async function loadRelatedVideos(videoId, vData) {
             card.onclick   = () => { openLongPlayer(v._id); videoOverlay.scrollTo(0, 0); };
             card.innerHTML = `
                 <div class="related-thumb">
-                    <img src="${THUMB_CDN_URL}${v._id}.jpg"
+                    <img loading="lazy" src="${THUMB_CDN_URL}${v._id}.jpg"
                         onerror="this.src='https://via.placeholder.com/140x80'">
                 </div>
                 <div class="related-info">
@@ -505,7 +545,7 @@ async function loadRelatedVideos(videoId, vData) {
                 card.className = "related-video-card";
                 card.onclick   = () => { openLongPlayer(v._id); videoOverlay.scrollTo(0, 0); };
                 card.innerHTML = `
-                    <div class="related-thumb"><img src="${THUMB_CDN_URL}${v._id}.jpg" onerror="this.src='https://via.placeholder.com/140x80'"></div>
+                    <div class="related-thumb"><img loading="lazy" src="${THUMB_CDN_URL}${v._id}.jpg" onerror="this.src='https://via.placeholder.com/140x80'"></div>
                     <div class="related-info"><h4>${v.title}</h4><p>${v.view_count || 0} views</p></div>`;
                 container.appendChild(card);
             });
@@ -581,6 +621,8 @@ function renderShortsPlaylist() {
     snapToShort(0, false);
 }
 
+let tapTimeout = null;
+
 function setupShortsTouchEngine() {
     if (!shortsOverlay) return;
 
@@ -603,9 +645,16 @@ function setupShortsTouchEngine() {
         const since  = now - lastTapTime;
 
         if (Math.abs(deltaY) < 10) {
-            if (since < 300) handleShortDoubleTap();
-            else              handleShortTap();
-            lastTapTime = now;
+            if (since < 300) {
+                if (tapTimeout) clearTimeout(tapTimeout);
+                handleShortDoubleTap();
+                lastTapTime = 0;
+            } else {
+                tapTimeout = setTimeout(() => {
+                    handleShortTap();
+                }, 300);
+                lastTapTime = now;
+            }
         } else if (deltaY < -50) {
             if (currentShortIdx < currentPlaylist.length - 1) {
                 currentShortIdx++;
@@ -656,6 +705,7 @@ async function appendNextShortsBatch() {
 }
 
 function snapToShort(idx, animate = true) {
+    if (!currentPlaylist[idx]) return;
     shortsFeed.style.transition = animate
         ? "transform 0.38s cubic-bezier(0.25, 1, 0.5, 1)"
         : "none";
@@ -669,25 +719,37 @@ function snapToShort(idx, animate = true) {
             if (!vid.src && !shortsHlsMap[i]) {
                 const url = `${CF_BASE}${v._id}.m3u8`;
                 if (Hls.isSupported()) {
-                    const h = new Hls();
+                    const h = new Hls({ startLevel: -1, autoLevelEnabled: true });
                     h.loadSource(url);
                     h.attachMedia(vid);
                     shortsHlsMap[i] = h;
+                    h.on(Hls.Events.MANIFEST_PARSED, () => {
+                        vid.play().catch(() => {});
+                    });
+                    h.on(Hls.Events.ERROR, (_, data) => {
+                        if (data.fatal) {
+                            vid.src = `${API_BASE}/stream/${v._id}`;
+                            vid.play().catch(() => {});
+                        }
+                    });
                 } else if (vid.canPlayType('application/vnd.apple.mpegurl')) {
                     vid.src = url;
+                    vid.play().catch(() => {});
                 } else {
                     vid.src = `${API_BASE}/stream/${v._id}`;
+                    vid.play().catch(() => {});
                 }
+            } else {
+                vid.play().catch(() => {});
             }
             vid.muted = globalMuted;
-            vid.play().catch(() => {});
-            updateShortProgress(vid, i);
 
             const hint = document.getElementById(`mute-hint-${i}`);
             if (hint) hint.style.display = globalMuted ? 'flex' : 'none';
 
             if (!watchedShortIds.includes(v._id)) watchedShortIds.push(v._id);
-            fetch(`${API_BASE}/views/${v._id}`, { method: 'POST' }).catch(() => {});
+            const initData = window.Telegram?.WebApp?.initData || "";
+            fetch(`${API_BASE}/views/${v._id}`, { method: 'POST', headers: { 'x-telegram-init-data': initData } }).catch(() => {});
 
             // Preload next
             if (i + 1 < currentPlaylist.length) {
@@ -705,10 +767,14 @@ function snapToShort(idx, animate = true) {
             }
         } else {
             vid.pause();
-            if (Math.abs(i - idx) > 3 && shortsHlsMap[i]) {
-                try { shortsHlsMap[i].destroy(); } catch(e) {}
-                delete shortsHlsMap[i];
+            // Memory Management: Keep only ±3 range active
+            if (Math.abs(i - idx) > 3) {
+                if (shortsHlsMap[i]) {
+                    try { shortsHlsMap[i].destroy(); } catch(e) {}
+                    delete shortsHlsMap[i];
+                }
                 vid.src = "";
+                vid.load(); // Free memory
             }
         }
     });
