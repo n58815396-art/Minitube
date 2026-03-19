@@ -3,6 +3,7 @@ import asyncio
 import hmac
 import hashlib
 import json
+import random
 from datetime import datetime, timedelta
 from typing import Optional
 from urllib.parse import parse_qs
@@ -86,31 +87,42 @@ async def get_all_tags():
 
 @app.get("/api/videos/recommended")
 async def get_recommended_videos(user_id: str = Depends(get_user_id), current_video_id: Optional[str] = None, type: Optional[str] = None):
-    query = {}
-    if type: query["type"] = type
-    all_videos_cursor = db.videos.find(query).sort("created_at", -1)
-    all_v = []
-    async for v in all_videos_cursor:
-        v["_id"] = str(v["_id"])
-        if v["_id"] == current_video_id: continue
-        all_v.append(v)
-    if user_id == "guest" or not all_v:
-        import random
-        random.shuffle(all_v)
-        return all_v[:60]
+    match_query = {}
+    if type: match_query["type"] = type
+    if current_video_id: match_query["_id"] = {"$ne": parse_id(current_video_id)}
     
-    # Simple recommendation logic
+    # If guest, just return random sample
+    if user_id == "guest":
+        pipeline = [{"$match": match_query}, {"$sample": {"size": 60}}]
+        cursor = db.videos.aggregate(pipeline)
+        videos = []
+        async for v in cursor:
+            v["_id"] = str(v["_id"])
+            videos.append(v)
+        return videos
+
+    # Simple personalized recommendation logic
     profile = await db.user_profiles.find_one({"user_id": user_id}) or {"categories": {}, "tags": {}}
     user_cats = profile.get("categories", {})
     top_cats = sorted(user_cats.keys(), key=lambda k: user_cats[k], reverse=True)[:3]
     
-    personalized = [v for v in all_v if v.get("category_id") in top_cats]
-    others = [v for v in all_v if v.get("category_id") not in top_cats]
+    # Use aggregation to get mixed results
+    pipeline = [
+        {"$match": match_query},
+        {"$addFields": {
+            "is_preferred": {"$cond": [{"$in": ["$category_id", top_cats]}, 1, 0]}
+        }},
+        {"$sort": {"is_preferred": -1, "created_at": -1}},
+        {"$limit": 100},
+        {"$sample": {"size": 60}}
+    ]
     
-    import random
-    random.shuffle(personalized)
-    random.shuffle(others)
-    return (personalized + others)[:60]
+    cursor = db.videos.aggregate(pipeline)
+    videos = []
+    async for v in cursor:
+        v["_id"] = str(v["_id"])
+        videos.append(v)
+    return videos
 
 @app.post("/api/views/{video_id}")
 async def increment_view(video_id: str, user_id: str = Depends(get_user_id)):
