@@ -1,6 +1,7 @@
 const API_BASE      = "/api";
 const PD_PROXY_URL  = "/api/pd";
 const CF_BASE       = "https://minitube-stream.f0471649.workers.dev/playlist/";
+const THUMB_CDN_URL = "https://thambnailloader.n58815396.workers.dev/";
 const MY_ADMIN_ID   = "1326069145";
 
 // Global video lists
@@ -48,18 +49,6 @@ const shortsFeed    = document.getElementById("shorts-wrapper");
    1. INIT
 ========================================= */
 window.addEventListener("DOMContentLoaded", async () => {
-    try {
-        if (window.Telegram && window.Telegram.WebApp) {
-            window.Telegram.WebApp.ready();
-            window.Telegram.WebApp.expand();
-            const tgUser = window.Telegram.WebApp.initDataUnsafe.user;
-            if (tgUser && String(tgUser.id) === MY_ADMIN_ID) {
-                const btn = document.getElementById("adminNavBtn");
-                if (btn) btn.classList.remove("hidden");
-            }
-        }
-    } catch(e) {}
-
     const searchInput = document.getElementById("searchInput");
     if (searchInput) {
         searchInput.addEventListener("keypress", e => { if (e.key === "Enter") searchVideos(); });
@@ -189,11 +178,11 @@ function renderHomeBlocks(numBlocks) {
                 const shelf = document.createElement("div");
                 shelf.className = "shorts-shelf";
                 shelf.innerHTML = `
-                    <div class="shorts-shelf-title"><i class="fas fa-sync-alt"></i> Scrolls</div>
+                    <div class="shorts-shelf-title"><i class="fas fa-bolt"></i> Scrolls</div>
                     <div class="shorts-grid">
                         ${shorts.map(s => `
                             <div class="short-card-home" onclick="openShortsPlayer('${s._id}')">
-                                <img src="${PD_PROXY_URL}/${s.pixeldrain_id}/thumbnail"
+                                <img src="${THUMB_CDN_URL}${s._id}.jpg"
                                     onerror="this.src='https://via.placeholder.com/200x350'">
                                 <div class="title">${s.title}</div>
                             </div>`).join('')}
@@ -203,14 +192,14 @@ function renderHomeBlocks(numBlocks) {
             homePhase = longVideos.length > 0 ? 1 : 0;
 
         } else if (longVideos.length > 0) {
-            // === Long Videos Block ===
+            // === Long Videos Block (5 videos) ===
             const longs = nextLongsBatch();
             longs.forEach(v => {
                 const card = document.createElement("div");
                 card.className = "video-card";
                 card.onclick   = () => openLongPlayer(v._id);
                 card.innerHTML = `
-                    <img class="thumbnail" src="${PD_PROXY_URL}/${v.pixeldrain_id}/thumbnail"
+                    <img class="thumbnail" src="${THUMB_CDN_URL}${v._id}.jpg"
                         onerror="this.src='https://via.placeholder.com/640x360'">
                     <div class="card-info">
                         <div class="v-title">${v.title}</div>
@@ -259,7 +248,7 @@ function loadTrendingTab() {
         card.className = "video-card";
         card.onclick   = () => openLongPlayer(v._id);
         card.innerHTML = `
-            <img class="thumbnail" src="${PD_PROXY_URL}/${v.pixeldrain_id}/thumbnail"
+            <img class="thumbnail" src="${THUMB_CDN_URL}${v._id}.jpg"
                 onerror="this.src='https://via.placeholder.com/640x360'">
             <div class="card-info">
                 <div class="v-title">${v.title}</div>
@@ -297,7 +286,7 @@ async function loadCategoriesTab() {
                 <div class="category-horizontal-scroll">
                     ${catVideos.slice(0, 5).map(v => `
                         <div class="category-video-card" onclick="${v.type !== 'short' ? `openLongPlayer('${v._id}')` : `openShortsPlayer('${v._id}')`}">
-                            <div class="thumbnail-container"><img src="${PD_PROXY_URL}/${v.pixeldrain_id}/thumbnail" onerror="this.src='https://via.placeholder.com/320x180'"></div>
+                            <div class="thumbnail-container"><img src="${THUMB_CDN_URL}${v._id}.jpg" onerror="this.src='https://via.placeholder.com/320x180'"></div>
                             <div class="video-info"><h3 style="font-size:12px;">${v.title}</h3></div>
                         </div>`).join('')}
                 </div>`;
@@ -315,7 +304,7 @@ function viewAllCategory(catId, catName) {
         card.className = "video-card";
         card.onclick   = () => isShort ? openShortsPlayer(v._id) : openLongPlayer(v._id);
         card.innerHTML = `
-            <img class="thumbnail" src="${PD_PROXY_URL}/${v.pixeldrain_id}/thumbnail" onerror="this.src='https://via.placeholder.com/640x360'">
+            <img class="thumbnail" src="${THUMB_CDN_URL}${v._id}.jpg" onerror="this.src='https://via.placeholder.com/640x360'">
             <div class="card-info">
                 <div class="v-title">${v.title}</div>
                 <div class="v-meta">${v.view_count || 0} views • ${isShort ? 'Short' : 'Video'}</div>
@@ -345,7 +334,7 @@ async function searchVideos() {
                 card.className = "video-card";
                 card.onclick   = () => isShort ? openShortsPlayer(v._id) : openLongPlayer(v._id);
                 card.innerHTML = `
-                    <img class="thumbnail" src="${PD_PROXY_URL}/${v.pixeldrain_id}/thumbnail" onerror="this.src='https://via.placeholder.com/640x360'">
+                    <img class="thumbnail" src="${THUMB_CDN_URL}${v._id}.jpg" onerror="this.src='https://via.placeholder.com/640x360'">
                     <div class="card-info">
                         <div class="v-title">${v.title}</div>
                         <div class="v-meta">${v.view_count || 0} views • ${isShort ? 'Short' : 'Video'}</div>
@@ -499,7 +488,7 @@ async function loadRelatedVideos(videoId, vData) {
             card.onclick   = () => { openLongPlayer(v._id); videoOverlay.scrollTo(0, 0); };
             card.innerHTML = `
                 <div class="related-thumb">
-                    <img src="${PD_PROXY_URL}/${v.pixeldrain_id}/thumbnail"
+                    <img src="${THUMB_CDN_URL}${v._id}.jpg"
                         onerror="this.src='https://via.placeholder.com/140x80'">
                 </div>
                 <div class="related-info">
@@ -516,7 +505,7 @@ async function loadRelatedVideos(videoId, vData) {
                 card.className = "related-video-card";
                 card.onclick   = () => { openLongPlayer(v._id); videoOverlay.scrollTo(0, 0); };
                 card.innerHTML = `
-                    <div class="related-thumb"><img src="${PD_PROXY_URL}/${v.pixeldrain_id}/thumbnail" onerror="this.src='https://via.placeholder.com/140x80'"></div>
+                    <div class="related-thumb"><img src="${THUMB_CDN_URL}${v._id}.jpg" onerror="this.src='https://via.placeholder.com/140x80'"></div>
                     <div class="related-info"><h4>${v.title}</h4><p>${v.view_count || 0} views</p></div>`;
                 container.appendChild(card);
             });

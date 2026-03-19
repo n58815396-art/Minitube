@@ -39,35 +39,44 @@ header {
 /* --- Feed --- */
 main { padding: 0 0 80px; }
 
-.video-card, .long-video-card {
-    margin-bottom: 20px; background: var(--card-bg);
-    border-radius: 12px; overflow: hidden; cursor: pointer;
-    transition: transform 0.3s, border 0.3s, box-shadow 0.3s;
-    border: 1px solid transparent;
+.video-card {
+    margin-bottom: 15px; background: var(--card-bg);
+    overflow: hidden; cursor: pointer;
+    transition: background 0.2s;
 }
-.video-card:hover, .long-video-card:hover {
-    transform: translateY(-3px);
-    border-color: var(--primary);
-    box-shadow: 0 8px 20px var(--primary-glow);
-}
-.thumbnail, .thumbnail-container img { width: 100%; aspect-ratio: 16/9; object-fit: cover; background: #222; display: block; }
-.card-info, .video-info { padding: 12px; }
-.v-title, .video-info h3 { font-size: 15px; font-weight: 600; line-height: 1.4; color: #fff; margin-bottom: 5px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.v-meta, .video-info p { font-size: 12px; color: var(--grey); }
+.video-card:active { background: #252525; }
+.thumbnail { width: 100%; aspect-ratio: 16/9; object-fit: cover; background: #222; display: block; }
+.card-info { padding: 12px 15px; }
+.v-title { font-size: 15px; font-weight: 500; line-height: 1.4; color: #fff; margin-bottom: 5px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.v-meta { font-size: 12px; color: var(--grey); }
 
 /* --- Shorts Shelf on Home --- */
-.shorts-shelf { margin: 20px 0; padding: 0 15px; }
-.shorts-shelf-title { display: flex; align-items: center; gap: 10px; font-size: 17px; margin-bottom: 13px; color: var(--primary); font-weight: bold; }
-.shorts-grid { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 8px; }
+.shorts-shelf { margin: 15px 0; padding: 0; }
+.shorts-shelf-title { display: flex; align-items: center; gap: 8px; font-size: 16px; margin: 0 15px 12px; color: var(--primary); font-weight: bold; }
+.shorts-grid { 
+    display: flex; 
+    gap: 10px; 
+    overflow-x: auto; 
+    padding: 0 15px 10px; 
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+}
 .shorts-grid::-webkit-scrollbar { display: none; }
 .short-card-home {
-    min-width: 130px; aspect-ratio: 9/16; border-radius: 12px;
-    overflow: hidden; background: #222; position: relative;
-    border: 1px solid #333; transition: 0.3s; flex-shrink: 0;
+    flex: 0 0 28%; /* 3.5 shorts logic: 3 full + 1 partial */
+    aspect-ratio: 9/16; border-radius: 10px;
+    overflow: hidden; background: #151515; position: relative;
+    border: 1px solid #222; transition: 0.3s;
+    scroll-snap-align: start;
 }
-.short-card-home:hover { border-color: var(--primary); }
 .short-card-home img { width: 100%; height: 100%; object-fit: cover; }
-.short-card-home .title { position: absolute; bottom: 0; left: 0; right: 0; padding: 8px 6px; background: linear-gradient(transparent, rgba(0,0,0,0.9)); font-size: 10px; font-weight: bold; }
+.short-card-home .title { 
+    position: absolute; bottom: 0; left: 0; right: 0; 
+    padding: 20px 6px 6px; 
+    background: linear-gradient(transparent, rgba(0,0,0,0.9)); 
+    font-size: 10px; font-weight: 500;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 
 /* ==================================================
    LONG VIDEO PLAYER OVERLAY
