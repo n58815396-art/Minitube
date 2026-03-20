@@ -8,18 +8,26 @@ from datetime import datetime, timedelta
 from typing import Optional
 from urllib.parse import parse_qs
 
+import httpx
 from fastapi import FastAPI, Request, Depends, Header
-from fastapi.responses import StreamingResponse, RedirectResponse
+from fastapi.responses import StreamingResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from bson import ObjectId
 from dotenv import load_dotenv
 
+CF_WORKER_BASE = "https://minitube-stream.f0471649.workers.dev"
+
 load_dotenv()
 
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+
+# Simple in-memory rate limit store: {(ip, video_id): timestamp}
+# Prevents view count spam — one view per IP per video per 10 minutes
+_view_rate_limit: dict = {}
+VIEW_RATE_LIMIT_SECONDS = 600  # 10 minutes
 
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -30,6 +38,12 @@ db = mongo_client["mini_clips"]
 def parse_id(vid: str):
     try: return ObjectId(vid)
     except: return vid
+
+# Only expose safe fields — never stream_key, admin_notes, internal metadata
+SAFE_PROJECTION = {
+    "_id": 1, "title": 1, "view_count": 1,
+    "type": 1, "category_id": 1, "tags": 1, "created_at": 1
+}
 
 # --- Authentication for Personalized Feed ---
 async def get_user_id(x_telegram_init_data: Optional[str] = Header(None)):
@@ -54,28 +68,91 @@ async def get_videos(type: Optional[str] = None, category_id: Optional[str] = No
     query = {}
     if type: query["type"] = type
     if category_id: query["category_id"] = category_id
-    cursor = db.videos.find(query, {"admin_notes": 0}).sort("created_at", -1).limit(limit)
+    cursor = db.videos.find(query, SAFE_PROJECTION).sort("created_at", -1).limit(limit)
     videos = []
     async for doc in cursor: 
         doc["_id"] = str(doc["_id"])
         videos.append(doc)
     return videos
+
+@app.get("/api/hls/{video_id}.m3u8")
+async def proxy_hls_manifest(video_id: str, request: Request):
+    """Proxy the m3u8 manifest from CF Worker and rewrite chunk URLs to our own proxy.
+    This eliminates CORS issues — CF Worker chunks have no Access-Control-Allow-Origin header
+    but our proxy adds it and serves chunks from the same origin as the app."""
+    cf_url = f"{CF_WORKER_BASE}/playlist/{video_id}.m3u8"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(cf_url)
+        if resp.status_code != 200:
+            return Response(status_code=resp.status_code)
+        # Rewrite absolute CF chunk URLs → relative proxy paths
+        content = resp.text.replace(
+            f"{CF_WORKER_BASE}/chunk/",
+            "/api/hls/chunk/"
+        )
+        return Response(
+            content=content,
+            media_type="application/x-mpegURL",
+            # FIX: no-store for manifests — always fetch fresh playlist
+            headers={"Access-Control-Allow-Origin": "*", "Cache-Control": "no-store"}
+        )
+    except Exception:
+        return Response(status_code=502)
+
+@app.get("/api/hls/chunk/{path:path}")
+async def proxy_hls_chunk(path: str):
+    """Proxy TS chunks from CF Worker. Adds CORS header that the CF Worker omits."""
+    cf_url = f"{CF_WORKER_BASE}/chunk/{path}"
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(cf_url)
+        if resp.status_code != 200:
+            return Response(status_code=resp.status_code)
+        return Response(
+            content=resp.content,
+            media_type="video/MP2T",
+            # FIX: long-lived cache for immutable chunks + keep-alive for faster connections
+            headers={
+                "Access-Control-Allow-Origin": "*",
+                "Cache-Control": "public, max-age=31536000",
+                "Connection": "keep-alive"
+            }
+        )
+    except Exception:
+        return Response(status_code=502)
 
 @app.get("/api/stream/{video_id}")
 async def stream_video_fallback(video_id: str):
-    # Fallback to direct MP4 if HLS fails. 
-    # In production, this should redirect to your primary storage/CDN MP4 URL.
-    return RedirectResponse(url=f"https://minitube-stream.f0471649.workers.dev/direct/{video_id}.mp4")
+    return RedirectResponse(url=f"{CF_WORKER_BASE}/direct/{video_id}.mp4")
 
 @app.get("/api/videos/search")
 async def search_videos(q: str):
-    query = {"title": {"$regex": q, "$options": "i"}}
-    cursor = db.videos.find(query).sort("created_at", -1).limit(50)
-    videos = []
-    async for doc in cursor: 
-        doc["_id"] = str(doc["_id"])
-        videos.append(doc)
-    return videos
+    # Uses MongoDB text index for O(log n) performance.
+    # Ensure index exists: db.videos.createIndex({"title": "text"})
+    # Falls back to regex if text index is not available.
+    proj = {**SAFE_PROJECTION, "score": {"$meta": "textScore"}}
+    try:
+        query = {"$text": {"$search": q}}
+        cursor = db.videos.find(query, proj).sort(
+            [("score", {"$meta": "textScore"}), ("created_at", -1)]
+        ).limit(50)
+        videos = []
+        async for doc in cursor:
+            doc["_id"] = str(doc["_id"])
+            doc.pop("score", None)
+            videos.append(doc)
+        if videos:
+            return videos
+        raise Exception("No text index results")
+    except Exception:
+        query = {"title": {"$regex": q, "$options": "i"}}
+        cursor = db.videos.find(query, SAFE_PROJECTION).sort("created_at", -1).limit(50)
+        videos = []
+        async for doc in cursor:
+            doc["_id"] = str(doc["_id"])
+            videos.append(doc)
+        return videos
 
 @app.get("/api/categories")
 async def get_categories():
@@ -105,7 +182,7 @@ async def get_related_videos(video_id: str, user_id: str = Depends(get_user_id))
             {"tags": {"$in": video.get("tags", [])}}
         ]
     }
-    cursor = db.videos.find(query, {"admin_notes": 0}).limit(20)
+    cursor = db.videos.find(query, SAFE_PROJECTION).limit(20)
     related = []
     async for v in cursor:
         v["_id"] = str(v["_id"])
@@ -116,10 +193,10 @@ async def get_related_videos(video_id: str, user_id: str = Depends(get_user_id))
 async def get_shorts_playlist(watched_ids: Optional[str] = "", limit: int = 10):
     exclude_ids = [parse_id(i) for i in watched_ids.split(",") if i]
     query = {"type": "short", "_id": {"$nin": exclude_ids}}
-    
     pipeline = [
         {"$match": query},
-        {"$sample": {"size": limit}}
+        {"$sample": {"size": limit}},
+        {"$project": SAFE_PROJECTION}
     ]
     cursor = db.videos.aggregate(pipeline)
     shorts = []
@@ -134,11 +211,9 @@ async def get_recommended_videos(user_id: str = Depends(get_user_id), current_vi
     if type: match_query["type"] = type
     if current_video_id: match_query["_id"] = {"$ne": parse_id(current_video_id)}
     
-    projection = {"admin_notes": 0, "stream_key": 0} # Security projection
-
     # If guest, just return random sample
     if user_id == "guest":
-        pipeline = [{"$match": match_query}, {"$sample": {"size": 60}}, {"$project": projection}]
+        pipeline = [{"$match": match_query}, {"$sample": {"size": 60}}, {"$project": SAFE_PROJECTION}]
         cursor = db.videos.aggregate(pipeline)
         videos = []
         async for v in cursor:
@@ -160,7 +235,7 @@ async def get_recommended_videos(user_id: str = Depends(get_user_id), current_vi
         {"$sort": {"is_preferred": -1, "created_at": -1}},
         {"$limit": 100},
         {"$sample": {"size": 60}},
-        {"$project": projection}
+        {"$project": SAFE_PROJECTION}
     ]
     
     cursor = db.videos.aggregate(pipeline)
@@ -171,7 +246,25 @@ async def get_recommended_videos(user_id: str = Depends(get_user_id), current_vi
     return videos
 
 @app.post("/api/views/{video_id}")
-async def increment_view(video_id: str, user_id: str = Depends(get_user_id)):
+async def increment_view(video_id: str, request: Request, user_id: str = Depends(get_user_id)):
+    # Rate limit: one view per IP per video per 10 minutes
+    client_ip = request.client.host if request.client else "unknown"
+    rate_key = (client_ip, video_id)
+    now_ts = datetime.utcnow().timestamp()
+
+    # Purge stale entries periodically to avoid unbounded memory growth
+    if len(_view_rate_limit) > 10000:
+        cutoff = now_ts - VIEW_RATE_LIMIT_SECONDS
+        stale = [k for k, v in _view_rate_limit.items() if v < cutoff]
+        for k in stale:
+            _view_rate_limit.pop(k, None)
+
+    last_seen = _view_rate_limit.get(rate_key)
+    if last_seen and (now_ts - last_seen) < VIEW_RATE_LIMIT_SECONDS:
+        return {"status": "rate_limited"}
+
+    _view_rate_limit[rate_key] = now_ts
+
     video = await db.videos.find_one_and_update(
         {"_id": parse_id(video_id)},
         {"$inc": {"view_count": 1}, "$set": {"last_active": datetime.utcnow()}}
@@ -182,6 +275,7 @@ async def increment_view(video_id: str, user_id: str = Depends(get_user_id)):
         if video.get("category_id"): update_query["$inc"][f"categories.{video['category_id']}"] = 1
         if update_query["$inc"]: await db.user_profiles.update_one({"user_id": user_id}, update_query, upsert=True)
     return {"status": "success"}
+
 @app.get("/api/video/{video_id}")
 async def get_single_video_json(video_id: str):
     video = await db.videos.find_one({"_id": parse_id(video_id)})
@@ -193,4 +287,4 @@ app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=7860)
+    uvicorn.run(app, host="0.0.0.0", port=5000)
