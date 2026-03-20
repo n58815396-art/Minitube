@@ -1,6 +1,8 @@
 fastapi
 uvicorn
-motor
 dnspython
 python-dotenv
 aiofiles
+motor
+pymongo[srv]
+httpx
