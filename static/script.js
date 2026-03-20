@@ -65,8 +65,8 @@ let playerAbortController = null;
    AD SYSTEM CONSTANTS & STATE
 ========================================= */
 // Adsgram block IDs
-const ADSGRAM_BLOCK_REWARDED = "25530"; // Rewarded entry gate
-const ADSGRAM_BLOCK_PREROLL  = "25530"; // Pre-roll before long video
+const ADSGRAM_BLOCK_REWARDED = "25543"; // Rewarded entry gate
+const ADSGRAM_BLOCK_PREROLL  = "25543"; // Pre-roll before long video
 
 // 24h unlock gate
 const AD_UNLOCK_KEY = "ad_unlock_time";
