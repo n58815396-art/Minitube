@@ -3,20 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <meta name="referrer" content="no-referrer">
-    <title>T-Tube</title>
+    <title>Minitube</title>
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 </head>
 
 <body>
 
     <header id="header">
-        <div class="logo">T-<span>Tube</span></div>
+        <div class="logo">Mini<span>Tube</span></div>
         <div class="search-box">
             <input type="text" id="searchInput" placeholder="Search videos...">
             <button onclick="searchVideos()"><i class="fas fa-search"></i></button>
@@ -67,21 +64,16 @@
             <h2 id="playerVideoTitle">Video Title</h2>
             <p id="playerVideoViews">0 views</p>
         </div>
-
-        <div class="related-section">
-            <h3 class="section-header">Up Next</h3>
-            <div id="related-videos-container"></div>
-        </div>
     </div>
 
-    <nav class="bottom-nav">
+        <nav class="bottom-nav">
         <div class="nav-item active" onclick="loadHome()"><i class="fas fa-home"></i><span>Home</span></div>
-        <div class="nav-item" onclick="loadNewTab()"><i class="fas fa-clock"></i><span>New</span></div>
-        <div class="nav-item" onclick="loadShortsTab()"><i class="fas fa-sync-alt theme-cyan"></i><span>Scrolls</span></div>
+        <div class="nav-item" onclick="loadShortsTab()"><i class="fas fa-bolt"></i><span>Shorts</span></div>
         <div class="nav-item" onclick="loadCategoriesTab()"><i class="fas fa-th-large"></i><span>Categories</span></div>
         
         <div class="nav-item hidden" id="adminNavBtn" onclick="window.location.href='/admin'"><i class="fas fa-cog"></i><span>Admin</span></div>
     </nav>
+
 
     <script src="script.js"></script>
 </body>
