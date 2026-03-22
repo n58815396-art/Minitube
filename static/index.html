@@ -5,121 +5,83 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="referrer" content="no-referrer">
     <title>T-Tube</title>
-
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-
+    
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-
-    <!-- Adsgram SDK — Rewarded & Pre-roll ads -->
-    <script async src="https://sad.adsgram.ai/js/sad.min.js"></script>
-
-    <!-- Monetag Interstitial SDK -->
-    <script async data-cfasync="false" src="//ophophous.com/401/10754897"></script>
 </head>
 
 <body>
 
-    <!-- =============================================
-         UNLOCK SCREEN (Rewarded Entry Gate)
-         Shown on first visit or after 24h expiry
-    ============================================= -->
-    <div id="app-unlock-screen" class="hidden">
-        <div class="unlock-box">
-            <div class="unlock-logo">T-<span>Tube</span></div>
-            <div class="unlock-icon"><i class="fas fa-play-circle"></i></div>
-            <h2>Watch a short ad to unlock</h2>
-            <p>Get free access for 24 hours after watching</p>
-            <button id="unlock-btn" onclick="onUnlockClick()">
-                <i class="fas fa-play"></i> Watch Ad &amp; Unlock
-            </button>
-            <span class="unlock-note"><i class="fas fa-clock"></i> ~15–30 seconds • No account needed</span>
+    <header id="header">
+        <div class="logo">T-<span>Tube</span></div>
+        <div class="search-box">
+            <input type="text" id="searchInput" placeholder="Search videos...">
+            <button onclick="searchVideos()"><i class="fas fa-search"></i></button>
+        </div>
+    </header>
+
+    <main id="main-content">
+        </main>
+
+    <div id="shorts-fullscreen-container" class="hidden">
+        <button class="close-shorts-btn" onclick="closeShorts()"><i class="fas fa-arrow-left"></i></button>
+        <div id="shorts-wrapper"></div>
+    </div>
+
+    <div id="video-player-overlay" class="hidden">
+        <div class="player-container" id="playerContainer">
+            <video id="longVideoPlayer" playsinline></video>
+            
+            <div id="loadingSpinner" class="spinner hidden"><i class="fas fa-circle-notch fa-spin"></i></div>
+            
+            <div id="rewindIndicator" class="tap-indicator left"><i class="fas fa-backward"></i> 10s</div>
+            <div id="forwardIndicator" class="tap-indicator right"><i class="fas fa-forward"></i> 10s</div>
+
+            <div id="playerControls" class="player-controls">
+                <button class="close-player-btn" onclick="closePlayer()"><i class="fas fa-times"></i></button>
+                
+                <div class="controls-bottom">
+                    <div class="progress-container" id="progressContainer">
+                        <div class="progress-bar-bg"></div>
+                        <div class="progress-bar-buffer" id="bufferBar"></div>
+                        <div class="progress-bar-fill" id="progressBar"></div>
+                    </div>
+                    
+                    <div class="control-actions">
+                        <div class="left-controls">
+                            <button id="playPauseBtn"><i class="fas fa-pause"></i></button>
+                            <span id="timeDisplay">0:00 / 0:00</span>
+                        </div>
+                        <div class="right-controls">
+                            <button id="muteBtn"><i class="fas fa-volume-up"></i></button>
+                            <button id="fullscreenBtn"><i class="fas fa-expand"></i></button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="player-video-details">
+            <h2 id="playerVideoTitle">Video Title</h2>
+            <p id="playerVideoViews">0 views</p>
+        </div>
+
+        <div class="related-section">
+            <h3 class="section-header">Up Next</h3>
+            <div id="related-videos-container"></div>
         </div>
     </div>
 
-    <!-- =============================================
-         MAIN APP WRAPPER
-    ============================================= -->
-    <div id="main-app" class="hidden">
-
-        <header id="header">
-            <div class="logo">T-<span>Tube</span></div>
-            <div class="search-box">
-                <input type="text" id="searchInput" placeholder="Search videos...">
-                <button onclick="searchVideos()"><i class="fas fa-search"></i></button>
-            </div>
-        </header>
-
-        <main id="main-content"></main>
-
-        <div id="shorts-fullscreen-container" class="hidden">
-            <button class="close-shorts-btn" onclick="closeShorts()">
-                <i class="fas fa-arrow-left"></i>
-            </button>
-            <div id="shorts-wrapper"></div>
-        </div>
-
-        <div id="video-player-overlay" class="hidden">
-            <div class="player-container" id="playerContainer">
-                <button class="player-back-btn" onclick="closePlayer()">
-                    <i class="fas fa-arrow-left"></i>
-                </button>
-                <video id="longVideoPlayer" playsinline controls></video>
-
-                <div id="seek-left" class="seek-indicator seek-left">
-                    <i class="fas fa-backward"></i><span>-10s</span>
-                </div>
-                <div id="seek-center" class="seek-indicator seek-center">
-                    <i id="seek-center-icon" class="fas fa-play"></i>
-                </div>
-                <div id="seek-right" class="seek-indicator seek-right">
-                    <i class="fas fa-forward"></i><span>+10s</span>
-                </div>
-            </div>
-
-            <div class="player-video-details">
-                <h2 id="playerVideoTitle"></h2>
-                <p id="playerVideoViews"></p>
-            </div>
-
-            <div class="related-section">
-                <h3 class="section-header"><i class="fas fa-play-circle"></i> Up Next</h3>
-                <div id="related-videos-container"></div>
-            </div>
-        </div>
-
-        <nav class="bottom-nav">
-            <div class="nav-item active" onclick="loadHome()">
-                <i class="fas fa-home"></i><span>Home</span>
-            </div>
-            <div class="nav-item" onclick="loadTrendingTab()">
-                <i class="fas fa-fire"></i><span>Trending</span>
-            </div>
-            <div class="nav-item" onclick="loadShortsTab()">
-                <i class="fas fa-sync-alt theme-cyan"></i><span>Scrolls</span>
-            </div>
-            <div class="nav-item" onclick="loadCategoriesTab()">
-                <i class="fas fa-th-large"></i><span>Categories</span>
-            </div>
-        </nav>
-
-    </div><!-- /#main-app -->
-
-    <!-- =============================================
-         STICKY BOTTOM BANNER (Monetag)
-         Appears above bottom nav after 10s, closeable
-    ============================================= -->
-    <div id="sticky-ad-banner" class="hidden">
-        <button class="close-sticky-ad" onclick="closeStickyBanner()" aria-label="Close ad">
-            <i class="fas fa-times"></i>
-        </button>
-        <span class="ad-label-badge">Sponsored</span>
-        <!-- Monetag banner zone: replace content of this div with your Monetag banner tag -->
-        <div id="monetag-banner-zone" style="min-height:50px;display:flex;align-items:center;justify-content:center;color:#aaa;font-size:12px;">
-            Advertisement
-        </div>
-    </div>
+    <nav class="bottom-nav">
+        <div class="nav-item active" onclick="loadHome()"><i class="fas fa-home"></i><span>Home</span></div>
+        <div class="nav-item" onclick="loadNewTab()"><i class="fas fa-clock"></i><span>New</span></div>
+        <div class="nav-item" onclick="loadShortsTab()"><i class="fas fa-sync-alt theme-cyan"></i><span>Scrolls</span></div>
+        <div class="nav-item" onclick="loadCategoriesTab()"><i class="fas fa-th-large"></i><span>Categories</span></div>
+        
+        <div class="nav-item hidden" id="adminNavBtn" onclick="window.location.href='/admin'"><i class="fas fa-cog"></i><span>Admin</span></div>
+    </nav>
 
     <script src="script.js"></script>
 </body>
