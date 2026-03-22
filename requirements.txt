@@ -1,8 +1,11 @@
 fastapi
 uvicorn
-dnspython
-python-dotenv
-aiofiles
 motor
-pymongo[srv]
-httpx
+pyrogram
+tgcrypto
+python-dotenv
+ffmpeg-python
+python-multipart
+aiofiles
+opencv-python-headless
+aiohttp
